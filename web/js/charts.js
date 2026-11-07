@@ -19,6 +19,8 @@ let active = false;
 let host = null;
 let resizeBound = false;
 let resizeTimer = null;
+let rangeStart = "";
+let rangeEnd = "";
 
 function hasEcharts() {
   return typeof window !== "undefined" && typeof window.echarts !== "undefined";
@@ -71,7 +73,7 @@ function emptyGraphic(text) {
 function trendOption(rows) {
   if (!rows.length) {
     return {
-      graphic: [emptyGraphic("暂无数据")],
+      graphic: [emptyGraphic("该区间暂无数据")],
       tooltip: { show: false },
     };
   }
@@ -182,7 +184,7 @@ function ringOption(rows) {
     return {
       title: {
         text: title,
-        subtext: "暂无数据",
+        subtext: "该区间暂无数据",
         left: "center",
         top: "38%",
         textStyle: { color: COLORS.text, fontSize: 13, fontWeight: 600 },
@@ -256,11 +258,58 @@ function render() {
   host.querySelectorAll("[data-ring]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.ring === ringType);
   });
+
+  const hint = host.querySelector("[data-range-hint]");
+  if (hint) {
+    const days = (latestStats.daily_totals || []).length;
+    hint.textContent = `${latestStats.summary.count} 笔 · ${days} 天有收支`;
+  }
+
+  host.querySelectorAll("[data-range-quick]").forEach((button) => {
+    const quick = button.dataset.rangeQuick;
+    const isAll = quick === "all" && !rangeStart && !rangeEnd;
+    button.classList.toggle("is-active", isAll);
+  });
 }
 
-async function load() {
+function shiftDate(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function todayString() {
+  return shiftDate(0);
+}
+
+function syncRangeInputs() {
+  const startInput = host.querySelector("[data-chart-start]");
+  const endInput = host.querySelector("[data-chart-end]");
+  if (startInput) {
+    startInput.value = rangeStart;
+  }
+  if (endInput) {
+    endInput.value = rangeEnd;
+  }
+}
+
+async function load(range) {
+  if (range && typeof range === "object") {
+    rangeStart = range.start || "";
+    rangeEnd = range.end || "";
+  }
+  syncRangeInputs();
+
+  if (rangeStart && rangeEnd && rangeStart > rangeEnd) {
+    toast("图表起始日期不能晚于结束日期", "error");
+    return;
+  }
+
   try {
-    latestStats = await api.getStats();
+    latestStats = await api.getStats({ start: rangeStart, end: rangeEnd });
     render();
   } catch (error) {
     toast(error.message, "error");
@@ -337,6 +386,17 @@ export function mount(container) {
         </div>
       </header>
 
+      <div class="chart-range">
+        <span class="chart-range-label">统计区间</span>
+        <input class="field-input" type="date" data-chart-start aria-label="图表起始日期">
+        <span class="range-arrow">→</span>
+        <input class="field-input" type="date" data-chart-end aria-label="图表结束日期">
+        <button type="button" class="btn btn-ghost btn-sm" data-range-quick="7">近 7 天</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-range-quick="30">近 30 天</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-range-quick="all">全部</button>
+        <span class="chart-range-hint" data-range-hint></span>
+      </div>
+
       <div class="charts-grid">
         <div class="chart-box chart-box-wide">
           <h4 class="chart-title">每日收支与结余趋势</h4>
@@ -351,12 +411,37 @@ export function mount(container) {
   `;
 
   container.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-ring]");
-    if (!button || button.dataset.ring === ringType) {
+    const ringButton = event.target.closest("[data-ring]");
+    if (ringButton && ringButton.dataset.ring !== ringType) {
+      ringType = ringButton.dataset.ring;
+      render();
       return;
     }
-    ringType = button.dataset.ring;
-    render();
+
+    const quickButton = event.target.closest("[data-range-quick]");
+    if (!quickButton) {
+      return;
+    }
+    const quick = quickButton.dataset.rangeQuick;
+    if (quick === "all") {
+      rangeStart = "";
+      rangeEnd = "";
+    } else {
+      rangeStart = shiftDate(-(Number(quick) - 1));
+      rangeEnd = todayString();
+    }
+    load();
+  });
+
+  container.addEventListener("change", (event) => {
+    const target = event.target;
+    if (target.matches("[data-chart-start]")) {
+      rangeStart = target.value;
+      load();
+    } else if (target.matches("[data-chart-end]")) {
+      rangeEnd = target.value;
+      load();
+    }
   });
 
   on("app:changed", () => {
@@ -364,4 +449,6 @@ export function mount(container) {
       load();
     }
   });
+
+  return { activate, reload: load, resize: resizeCharts };
 }

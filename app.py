@@ -47,13 +47,6 @@ def _parse_day(value, field):
         raise HTTPException(status_code=400, detail={"errors": [f"{field} 格式应为 YYYY-MM-DD"]})
 
 
-def _sort_records(records):
-    return sorted(
-        records,
-        key=lambda r: (str(r.get("date", "")), str(r.get("created_at", ""))),
-        reverse=True,
-    )
-
 
 def _all_totals():
     return totals(storage.load_records())
@@ -108,11 +101,14 @@ def list_records(
     if start_day and end_day and start_day > end_day:
         raise HTTPException(status_code=400, detail={"errors": ["起始日期不能晚于结束日期"]})
 
-    records = _sort_records(
-        filter_by_range(storage.load_records(), start_day, end_day, type, category, keyword)
+    records = storage.query_records(
+        start=start_day,
+        end=end_day,
+        rtype=type,
+        category=category,
+        keyword=(keyword or "").strip() or None,
+        limit=limit,
     )
-    if limit:
-        records = records[:limit]
     return {
         "records": records,
         "count": len(records),
