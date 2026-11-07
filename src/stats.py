@@ -132,3 +132,31 @@ def range_overview(records, start=None, end=None):
         "avg_daily_expense": round(base["expense"] / active_days, 2) if active_days else 0.0,
         "max_expense": round(max_expense, 2),
     }
+
+
+def monthly_totals(records):
+    buckets = defaultdict(lambda: {"income": 0.0, "expense": 0.0, "count": 0})
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        record_type = record.get("type")
+        if record_type not in ("expense", "income"):
+            continue
+        day_obj = _as_date(record.get("date", ""))
+        if day_obj is None:
+            continue
+        month_key = day_obj.strftime("%Y-%m")
+        buckets[month_key][record_type] += _safe_amount(record.get("amount", 0))
+        buckets[month_key]["count"] += 1
+    rows = []
+    for month_key in sorted(buckets):
+        income = round(buckets[month_key]["income"], 2)
+        expense = round(buckets[month_key]["expense"], 2)
+        rows.append({
+            "month": month_key,
+            "income": income,
+            "expense": expense,
+            "balance": round(income - expense, 2),
+            "count": buckets[month_key]["count"],
+        })
+    return rows
