@@ -1,16 +1,7 @@
 """记账本存储层：SQLite 主存储 + JSON 全量备份。
 
-对 FastAPI 的调用方式（示例）：
-    from src import storage
-
-    record = storage.add_record("2026-11-07", "expense", 25.5, "餐饮", "午饭")
-    records = storage.get_all_records()
-
-说明：
-1. 数据库固定保存在项目根目录下的 data/records.db；
-2. 每次新增、修改、删除后，都会把 records 表的全部数据导出到
-   data/records.json，作为可直接查看的双写备份；
-3. 每次操作使用独立的 SQLite 连接，避免 FastAPI 多线程下的连接复用问题。
+兼容旧接口（load_records / save_records / add_record(Record) / query_records /
+upsert_records / storage_info）与新接口（get_all_records / add_record(date, ...)）。
 """
 
 from __future__ import annotations
@@ -24,16 +15,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-# 以项目根目录为基准，避免从不同工作目录启动 FastAPI 时数据库路径错乱
+from src.config import DATE_FORMAT
+from src.models import Record
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "records.db"
 JSON_PATH = DATA_DIR / "records.json"
 
-# 写操作串行执行，保证 SQLite 写入和 JSON 导出的顺序一致
+DATA_FILE = JSON_PATH
+DB_FILE = DB_PATH
+
 _LOCK = threading.RLock()
 
-# 建表语句：字段与课程作业要求保持一致
+FIELDS = "id, date, type, amount, category, note, created_at"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS records (
     id TEXT PRIMARY KEY,
@@ -44,19 +40,92 @@ CREATE TABLE IF NOT EXISTS records (
     note TEXT,
     created_at TEXT
 );
-
 CREATE INDEX IF NOT EXISTS idx_records_date ON records(date);
 CREATE INDEX IF NOT EXISTS idx_records_type ON records(type);
 """
 
 
+def _json_path() -> Path:
+    return Path(DATA_FILE)
+
+
+def _db_path() -> Path:
+    data_file = _json_path()
+    configured = Path(DB_FILE)
+    if configured.parent == data_file.parent:
+        return configured
+    return data_file.with_name("records.db")
+
+
+def _read_json() -> list[dict[str, Any]]:
+    path = _json_path()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8") or "[]")
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    return [Record.from_dict(item).to_dict() for item in raw if isinstance(item, dict)]
+
+
+def _row(record: dict[str, Any]) -> tuple:
+    return (
+        str(record.get("id", "")),
+        str(record.get("date", "")),
+        str(record.get("type", "expense")),
+        float(record.get("amount", 0) or 0),
+        str(record.get("category", "其他") or "其他"),
+        str(record.get("note", "") or ""),
+        str(record.get("created_at", "") or ""),
+    )
+
+
+def _insert_many(conn: sqlite3.Connection, records: list[dict[str, Any]]) -> None:
+    conn.executemany(
+        f"INSERT OR REPLACE INTO records ({FIELDS}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [_row(record) for record in records],
+    )
+
+
+def _bootstrap(conn: sqlite3.Connection) -> None:
+    count = conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+    if count:
+        return
+    seeds = _read_json()
+    if seeds:
+        _insert_many(conn, seeds)
+
+
+def _fetch_all(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        f"SELECT {FIELDS} FROM records ORDER BY date DESC, created_at DESC"
+    ).fetchall()
+    return [Record.from_dict(dict(row)).to_dict() for row in rows]
+
+
+def _write_json(records: list[dict[str, Any]]) -> None:
+    path = _json_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(".tmp")
+    temp_path.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temp_path.replace(path)
+
+
 @contextmanager
 def _connect() -> Iterator[sqlite3.Connection]:
-    """打开数据库连接，正常结束时提交，出错时回滚，最后关闭连接。"""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row  # 查询结果可以按列名转成字典
+    json_path = _json_path()
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    if not json_path.exists():
+        json_path.write_text("[]", encoding="utf-8")
+
+    conn = sqlite3.connect(str(_db_path()), timeout=15)
+    conn.row_factory = sqlite3.Row
     try:
+        conn.executescript(SCHEMA)
+        _bootstrap(conn)
         yield conn
         conn.commit()
     except Exception:
@@ -66,159 +135,177 @@ def _connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def _fetch_all(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """查询全部记录，按日期倒序；同一天内按创建时间倒序。"""
-    rows = conn.execute(
-        """
-        SELECT id, date, type, amount, category, note, created_at
-        FROM records
-        ORDER BY date DESC, created_at DESC
-        """
-    ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def _write_json(records: list[dict[str, Any]]) -> None:
-    """把全部记录原子地写入 JSON 文件，避免写入中断留下半个文件。"""
-    JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = JSON_PATH.with_suffix(".json.tmp")
-    temp_path.write_text(
-        json.dumps(records, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temp_path.replace(JSON_PATH)  # 同目录替换，Windows/Linux 均适用
-
-
 def init_db() -> None:
-    """初始化数据表、索引，并生成一份与数据库一致的 JSON 备份。"""
     with _LOCK, _connect() as conn:
-        conn.executescript(SCHEMA)
         _write_json(_fetch_all(conn))
 
 
 def export_json() -> list[dict[str, Any]]:
-    """手动导出全部记录到 JSON；一般由写操作自动调用，也可用于修复备份。"""
     with _LOCK, _connect() as conn:
         records = _fetch_all(conn)
         _write_json(records)
         return records
 
 
-def add_record(
-    date: str,
-    type: str,
-    amount: float,
-    category: str = "",
-    note: str = "",
-) -> dict[str, Any]:
-    """新增一条记录并返回完整记录。
+def _insert_record(record: dict[str, Any]) -> dict[str, Any]:
+    with _LOCK, _connect() as conn:
+        conn.execute(
+            f"INSERT OR REPLACE INTO records ({FIELDS}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            _row(record),
+        )
+        _write_json(_fetch_all(conn))
+    return record
 
-    参数：
-        date:     日期，建议使用 "YYYY-MM-DD"
-        type:     类型，例如 "income"（收入）或 "expense"（支出）
-        amount:   金额
-        category: 分类
-        note:     备注
-    """
+
+def add_record(date, type=None, amount=None, category="", note=""):
+    if isinstance(date, (Record, dict)) or not isinstance(date, str):
+        record = date.to_dict() if isinstance(date, Record) else Record.from_dict(date).to_dict()
+        return _insert_record(record)
+
+    if type is None or amount is None:
+        raise TypeError("add_record 需要 date、type、amount 三个参数")
+
     record = {
         "id": uuid.uuid4().hex,
         "date": date,
         "type": type,
         "amount": float(amount),
-        "category": category,
-        "note": note,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "category": category or "其他",
+        "note": note or "",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-
-    with _LOCK, _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO records (id, date, type, amount, category, note, created_at)
-            VALUES (:id, :date, :type, :amount, :category, :note, :created_at)
-            """,
-            record,
-        )
-        _write_json(_fetch_all(conn))
-
-    return record
+    return _insert_record(record)
 
 
 def get_record(record_id: str) -> dict[str, Any] | None:
-    """根据 id 查询一条记录，不存在时返回 None。"""
     with _connect() as conn:
         row = conn.execute(
-            """
-            SELECT id, date, type, amount, category, note, created_at
-            FROM records
-            WHERE id = ?
-            """,
-            (record_id,),
+            f"SELECT {FIELDS} FROM records WHERE id = ?", (record_id,)
         ).fetchone()
-
-    return dict(row) if row else None
+    return Record.from_dict(dict(row)).to_dict() if row else None
 
 
 def get_all_records() -> list[dict[str, Any]]:
-    """查询全部记录。"""
     with _connect() as conn:
         return _fetch_all(conn)
 
 
-def update_record(
-    record_id: str,
-    updates: dict[str, Any],
-) -> dict[str, Any] | None:
-    """按 id 更新记录，支持只传需要修改的字段；记录不存在时返回 None。
+def load_records() -> list[dict[str, Any]]:
+    return get_all_records()
 
-    updates 中可以包含 date、type、amount、category、note；
-    id 和 created_at 由系统维护，不允许通过此函数修改。
-    """
+
+def save_records(records) -> None:
+    payload = [Record.from_dict(item).to_dict() for item in records]
+    with _LOCK, _connect() as conn:
+        conn.execute("DELETE FROM records")
+        _insert_many(conn, payload)
+        _write_json(_fetch_all(conn))
+
+
+def update_record(record_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(updates, dict):
+        return None
+
     allowed_fields = {"date", "type", "amount", "category", "note"}
     fields = {key: value for key, value in updates.items() if key in allowed_fields}
 
-    # 没有需要更新的字段时，直接返回原记录
     if not fields:
         return get_record(record_id)
 
     if "amount" in fields:
         fields["amount"] = float(fields["amount"])
 
-    # 字段名来自上面的白名单，值全部使用 ? 参数，避免 SQL 注入
     set_sql = ", ".join(f"{key} = ?" for key in fields)
     values = list(fields.values()) + [record_id]
 
     with _LOCK, _connect() as conn:
-        cursor = conn.execute(
-            f"UPDATE records SET {set_sql} WHERE id = ?",
-            values,
-        )
+        cursor = conn.execute(f"UPDATE records SET {set_sql} WHERE id = ?", values)
         if cursor.rowcount == 0:
             return None
-
         _write_json(_fetch_all(conn))
         row = conn.execute(
-            """
-            SELECT id, date, type, amount, category, note, created_at
-            FROM records
-            WHERE id = ?
-            """,
-            (record_id,),
+            f"SELECT {FIELDS} FROM records WHERE id = ?", (record_id,)
         ).fetchone()
 
-    return dict(row) if row else None
+    return Record.from_dict(dict(row)).to_dict() if row else None
 
 
 def delete_record(record_id: str) -> bool:
-    """按 id 删除记录；删除成功返回 True，记录不存在返回 False。"""
     with _LOCK, _connect() as conn:
         cursor = conn.execute("DELETE FROM records WHERE id = ?", (record_id,))
         if cursor.rowcount == 0:
             return False
-
         _write_json(_fetch_all(conn))
-
     return True
 
 
-# 模块首次导入时自动初始化，FastAPI 直接 import 即可使用
+def upsert_records(records) -> int:
+    payload = [Record.from_dict(item).to_dict() for item in records]
+    if not payload:
+        return 0
+    with _LOCK, _connect() as conn:
+        _insert_many(conn, payload)
+        _write_json(_fetch_all(conn))
+    return len(payload)
+
+
+def _date_param(value) -> str | None:
+    if value is None or value == "":
+        return None
+    if hasattr(value, "strftime"):
+        return value.strftime(DATE_FORMAT)
+    return str(value)
+
+
+def query_records(
+    start=None,
+    end=None,
+    rtype=None,
+    category=None,
+    keyword=None,
+    limit=None,
+) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    start_value = _date_param(start)
+    end_value = _date_param(end)
+    if start_value:
+        clauses.append("date >= ?")
+        params.append(start_value)
+    if end_value:
+        clauses.append("date <= ?")
+        params.append(end_value)
+    if rtype and rtype != "all":
+        clauses.append("type = ?")
+        params.append(rtype)
+    if category and category != "all":
+        clauses.append("category = ?")
+        params.append(category)
+    keyword = (keyword or "").strip()
+    if keyword:
+        clauses.append("note LIKE ?")
+        params.append(f"%{keyword}%")
+
+    sql = f"SELECT {FIELDS} FROM records"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY date DESC, created_at DESC"
+    if limit:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+
+    with _LOCK, _connect() as conn:
+        rows = conn.execute(sql, params).fetchall()
+        return [Record.from_dict(dict(row)).to_dict() for row in rows]
+
+
+def storage_info() -> dict[str, str]:
+    return {
+        "engine": "SQLite3 + JSON Backup",
+        "db_file": f"data/{_db_path().name}",
+        "data_file": f"data/{_json_path().name}",
+    }
+
+
 init_db()
