@@ -1,13 +1,16 @@
 import { api, escapeHtml, formatMoney, on, refreshApp, toast } from "./api.js";
 
-const filters = {
+const DEFAULT_FILTERS = Object.freeze({
   type: "all",
   category: "all",
   start: "",
   end: "",
   keyword: "",
   limit: "20",
-};
+  sort: "date-desc",
+});
+
+const filters = { ...DEFAULT_FILTERS };
 
 let config = null;
 let records = [];
@@ -15,17 +18,44 @@ let host = null;
 let keywordTimer = null;
 let pendingDelete = null;
 let pendingDeleteTimer = null;
+let loadRequestId = 0;
+let modalReturnFocus = null;
+let bodyOverflowBeforeModal = "";
+let unsubscribeChanged = null;
 
 const TYPE_LABELS = { expense: "支出", income: "收入" };
 
-function categoryOptions() {
+function categoriesForType(type = filters.type) {
   if (!config) {
-    return '<option value="all">全部类别</option>';
+    return [];
   }
-  const merged = Array.from(new Set([...config.expense_categories, ...config.income_categories]));
+  if (type === "expense") {
+    return config.expense_categories;
+  }
+  if (type === "income") {
+    return config.income_categories;
+  }
+  return Array.from(new Set([...config.expense_categories, ...config.income_categories]));
+}
+
+function categoryOptions() {
+  const categories = categoriesForType();
   return ['<option value="all">全部类别</option>']
-    .concat(merged.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`))
+    .concat(categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`))
     .join("");
+}
+
+function syncCategoryFilter() {
+  const select = host && host.querySelector('[data-filter="category"]');
+  if (!select) {
+    return;
+  }
+  const categories = categoriesForType();
+  if (config && filters.category !== "all" && !categories.includes(filters.category)) {
+    filters.category = "all";
+  }
+  select.innerHTML = categoryOptions();
+  select.value = filters.category;
 }
 
 function renderShell() {
@@ -73,9 +103,18 @@ function renderShell() {
             <option value="all">全部</option>
           </select>
         </label>
+        <label class="filter-field">
+          <span class="field-label">排序</span>
+          <select class="field-input" data-filter="sort">
+            <option value="date-desc">日期从近到远</option>
+            <option value="date-asc">日期从远到近</option>
+            <option value="amount-desc">金额从高到低</option>
+            <option value="amount-asc">金额从低到高</option>
+          </select>
+        </label>
       </div>
 
-      <div class="records-summary" data-summary></div>
+      <div class="records-summary" data-summary role="status" aria-live="polite"></div>
 
       <div class="table-wrap">
         <table class="records-table">
@@ -108,6 +147,42 @@ function applyFilterInputs() {
   host.querySelector('[data-filter="end"]').value = filters.end;
   host.querySelector('[data-filter="keyword"]').value = filters.keyword;
   host.querySelector('[data-filter="limit"]').value = filters.limit;
+  host.querySelector('[data-filter="sort"]').value = filters.sort;
+}
+
+function sortedRecords() {
+  const [field, direction] = filters.sort.split("-");
+  const multiplier = direction === "asc" ? 1 : -1;
+  return [...records].sort((left, right) => {
+    if (field === "amount") {
+      return (Number(left.amount || 0) - Number(right.amount || 0)) * multiplier;
+    }
+    const leftKey = `${left.date || ""} ${left.created_at || ""}`;
+    const rightKey = `${right.date || ""} ${right.created_at || ""}`;
+    return leftKey.localeCompare(rightKey) * multiplier;
+  });
+}
+
+function validateDateRange(notify = false) {
+  const startInput = host.querySelector('[data-filter="start"]');
+  const endInput = host.querySelector('[data-filter="end"]');
+  const invalid = Boolean(filters.start && filters.end && filters.start > filters.end);
+  const message = invalid ? "起始日期不能晚于结束日期" : "";
+  startInput.setCustomValidity(message);
+  endInput.setCustomValidity(message);
+  startInput.setAttribute("aria-invalid", String(invalid));
+  endInput.setAttribute("aria-invalid", String(invalid));
+  if (invalid && notify) {
+    toast(message, "error");
+  }
+  return !invalid;
+}
+
+function setLoading(isLoading) {
+  const card = host && host.querySelector(".records-card");
+  if (card) {
+    card.setAttribute("aria-busy", String(isLoading));
+  }
 }
 
 function renderRows(data) {
@@ -138,21 +213,24 @@ function renderRows(data) {
   }
 
   empty.hidden = true;
-  tbody.innerHTML = records
+  tbody.innerHTML = sortedRecords()
     .map((record) => {
       const isIncome = record.type === "income";
       const amountClass = isIncome ? "amount-income" : "amount-expense";
       const sign = isIncome ? "+" : "-";
+      const recordLabel = `${record.date} ${record.category} ${formatMoney(record.amount)}`;
       return `
         <tr data-id="${escapeHtml(record.id)}">
           <td class="cell-date">${escapeHtml(record.date)}</td>
           <td><span class="type-tag ${isIncome ? "type-income" : "type-expense"}">${TYPE_LABELS[record.type] || record.type}</span></td>
           <td>${escapeHtml(record.category)}</td>
           <td class="align-right ${amountClass}">${sign}${formatMoney(record.amount)}</td>
-          <td class="cell-note">${escapeHtml(record.note || "—")}</td>
+          <td class="cell-note" title="${escapeHtml(record.note || "")}">${escapeHtml(record.note || "—")}</td>
           <td class="align-right cell-actions">
-            <button class="row-action" data-action="edit" data-id="${escapeHtml(record.id)}">编辑</button>
-            <button class="row-action danger" data-action="delete" data-id="${escapeHtml(record.id)}">删除</button>
+            <button type="button" class="row-action" data-action="edit" data-id="${escapeHtml(record.id)}"
+              aria-label="编辑 ${escapeHtml(recordLabel)}">编辑</button>
+            <button type="button" class="row-action danger" data-action="delete" data-id="${escapeHtml(record.id)}"
+              data-default-label="删除 ${escapeHtml(recordLabel)}" aria-label="删除 ${escapeHtml(recordLabel)}">删除</button>
           </td>
         </tr>
       `;
@@ -161,6 +239,11 @@ function renderRows(data) {
 }
 
 async function loadRecords() {
+  const requestId = ++loadRequestId;
+  if (!validateDateRange()) {
+    return;
+  }
+  setLoading(true);
   try {
     const params = {
       type: filters.type,
@@ -171,10 +254,19 @@ async function loadRecords() {
       limit: filters.limit === "all" ? undefined : filters.limit,
     };
     const data = await api.getRecords(params);
+    if (requestId !== loadRequestId) {
+      return;
+    }
     records = data.records;
     renderRows(data);
   } catch (error) {
-    toast(error.message, "error");
+    if (requestId === loadRequestId) {
+      toast(error.message, "error");
+    }
+  } finally {
+    if (requestId === loadRequestId) {
+      setLoading(false);
+    }
   }
 }
 
@@ -184,6 +276,7 @@ function resetDeleteConfirm() {
   }
   pendingDelete.dataset.confirming = "0";
   pendingDelete.textContent = "删除";
+  pendingDelete.setAttribute("aria-label", pendingDelete.dataset.defaultLabel || "删除记录");
   pendingDelete.classList.remove("is-confirming");
   pendingDelete = null;
   if (pendingDeleteTimer) {
@@ -198,6 +291,7 @@ async function handleDelete(button) {
     resetDeleteConfirm();
     button.dataset.confirming = "1";
     button.textContent = "确认删除？";
+    button.setAttribute("aria-label", "再次点击确认删除这条记录");
     button.classList.add("is-confirming");
     pendingDelete = button;
     pendingDeleteTimer = window.setTimeout(() => {
@@ -210,6 +304,8 @@ async function handleDelete(button) {
 
   resetDeleteConfirm();
   button.disabled = true;
+  button.textContent = "删除中...";
+  button.setAttribute("aria-busy", "true");
   try {
     await api.deleteRecord(id);
     toast("记录已删除");
@@ -217,10 +313,28 @@ async function handleDelete(button) {
   } catch (error) {
     toast(error.message, "error");
     button.disabled = false;
+    button.textContent = "删除";
+    button.removeAttribute("aria-busy");
+    button.setAttribute("aria-label", button.dataset.defaultLabel || "删除记录");
   }
 }
 
-function openEditModal(record) {
+function editCategories(type) {
+  return type === "income" ? config.income_categories : config.expense_categories;
+}
+
+function populateEditCategories(type, preferredCategory = "") {
+  const modal = document.getElementById("edit-modal");
+  const categorySelect = modal.querySelector('#edit-form [name="category"]');
+  const categories = editCategories(type);
+  categorySelect.innerHTML = categories
+    .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+    .join("");
+  const fallback = categories.includes("其他") ? "其他" : categories[0];
+  categorySelect.value = categories.includes(preferredCategory) ? preferredCategory : fallback;
+}
+
+function openEditModal(record, trigger) {
   const modal = document.getElementById("edit-modal");
   if (!modal) {
     return;
@@ -235,14 +349,11 @@ function openEditModal(record) {
   form.querySelector('[name="type"]').value = record.type;
   form.querySelector('[name="amount"]').value = record.amount;
   form.querySelector('[name="note"]').value = record.note || "";
+  populateEditCategories(record.type, record.category);
 
-  const categorySelect = form.querySelector('[name="category"]');
-  const categories = record.type === "income" ? config.income_categories : config.expense_categories;
-  categorySelect.innerHTML = categories
-    .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
-    .join("");
-  categorySelect.value = record.category;
-
+  modalReturnFocus = trigger || document.activeElement;
+  bodyOverflowBeforeModal = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
   modal.classList.add("is-open");
   modal.setAttribute("aria-hidden", "false");
   form.querySelector('[name="amount"]').focus();
@@ -253,8 +364,16 @@ function closeEditModal() {
   if (!modal) {
     return;
   }
+  if (modal.querySelector("#edit-form").dataset.saving === "1") {
+    return;
+  }
   modal.classList.remove("is-open");
   modal.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = bodyOverflowBeforeModal;
+  if (modalReturnFocus && document.contains(modalReturnFocus)) {
+    modalReturnFocus.focus();
+  }
+  modalReturnFocus = null;
 }
 
 function bindEditModal() {
@@ -266,16 +385,13 @@ function bindEditModal() {
 
   const form = modal.querySelector("#edit-form");
   const typeSelect = form.querySelector('[name="type"]');
-  const categorySelect = form.querySelector('[name="category"]');
 
   typeSelect.addEventListener("change", () => {
     if (!config) {
       return;
     }
-    const categories = typeSelect.value === "income" ? config.income_categories : config.expense_categories;
-    categorySelect.innerHTML = categories
-      .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
-      .join("");
+    const currentCategory = form.querySelector('[name="category"]').value;
+    populateEditCategories(typeSelect.value, currentCategory);
   });
 
   modal.querySelectorAll("[data-action=cancel]").forEach((button) => {
@@ -288,8 +404,25 @@ function bindEditModal() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (!modal.classList.contains("is-open")) {
+      return;
+    }
     if (event.key === "Escape") {
+      event.preventDefault();
       closeEditModal();
+      return;
+    }
+    if (event.key === "Tab") {
+      const focusable = Array.from(modal.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled])"));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
   });
 
@@ -300,7 +433,7 @@ function bindEditModal() {
       date: form.querySelector('[name="date"]').value,
       type: typeSelect.value,
       amount: Number(form.querySelector('[name="amount"]').value),
-      category: categorySelect.value,
+      category: form.querySelector('[name="category"]').value,
       note: form.querySelector('[name="note"]').value.trim(),
     };
 
@@ -314,32 +447,42 @@ function bindEditModal() {
     }
 
     const saveButton = form.querySelector("button[type=submit]");
+    const saveLabel = saveButton.textContent;
+    form.dataset.saving = "1";
     saveButton.disabled = true;
+    saveButton.textContent = "保存中...";
     try {
       await api.updateRecord(id, payload);
       toast("记录已更新");
+      form.dataset.saving = "0";
       closeEditModal();
       await refreshApp();
     } catch (error) {
       toast(error.message, "error");
     } finally {
+      form.dataset.saving = "0";
       saveButton.disabled = false;
+      saveButton.textContent = saveLabel;
     }
   });
 }
 
 export function mount(container) {
   host = container;
+  // Keep the wide table inside its scroll container instead of expanding the page grid on mobile.
+  const main = host.closest(".main");
+  if (main) {
+    main.style.gridTemplateColumns = "minmax(0, 1fr)";
+  }
   renderShell();
+  applyFilterInputs();
   bindEditModal();
 
   api
     .getConfig()
     .then((data) => {
       config = data;
-      const select = host.querySelector('[data-filter="category"]');
-      select.innerHTML = categoryOptions();
-      select.value = filters.category;
+      syncCategoryFilter();
     })
     .catch((error) => toast(error.message, "error"));
 
@@ -351,7 +494,21 @@ export function mount(container) {
     if (target.dataset.filter === "keyword") {
       return;
     }
-    filters[target.dataset.filter] = target.value;
+    const key = target.dataset.filter;
+    filters[key] = target.value;
+    resetDeleteConfirm();
+    if (key === "type") {
+      syncCategoryFilter();
+    }
+    if ((key === "start" || key === "end") && !validateDateRange(true)) {
+      ++loadRequestId;
+      setLoading(false);
+      return;
+    }
+    if (key === "sort") {
+      renderRows({ count: records.length });
+      return;
+    }
     loadRecords();
   });
 
@@ -361,6 +518,8 @@ export function mount(container) {
       return;
     }
     filters.keyword = target.value.trim();
+    ++loadRequestId;
+    setLoading(false);
     if (keywordTimer) {
       window.clearTimeout(keywordTimer);
     }
@@ -370,13 +529,15 @@ export function mount(container) {
   host.addEventListener("click", (event) => {
     const reset = event.target.closest('[data-action="reset"]');
     if (reset) {
-      filters.type = "all";
-      filters.category = "all";
-      filters.start = "";
-      filters.end = "";
-      filters.keyword = "";
-      filters.limit = "20";
+      Object.assign(filters, DEFAULT_FILTERS);
+      if (keywordTimer) {
+        window.clearTimeout(keywordTimer);
+        keywordTimer = null;
+      }
       applyFilterInputs();
+      syncCategoryFilter();
+      validateDateRange();
+      resetDeleteConfirm();
       loadRecords();
       return;
     }
@@ -394,12 +555,15 @@ export function mount(container) {
     if (action.dataset.action === "edit") {
       const record = records.find((item) => item.id === action.dataset.id);
       if (record) {
-        openEditModal(record);
+        openEditModal(record, action);
       }
     }
   });
 
-  on("app:changed", () => {
+  if (unsubscribeChanged) {
+    unsubscribeChanged();
+  }
+  unsubscribeChanged = on("app:changed", () => {
     loadRecords();
   });
 
