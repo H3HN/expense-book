@@ -1,0 +1,20 @@
+[
+  {
+    "id": "demo00000001",
+    "date": "2026-11-07",
+    "type": "income",
+    "amount": 2000.0,
+    "category": "生活费",
+    "note": "本月生活费",
+    "created_at": "2026-11-07 09:00:00"
+  },
+  {
+    "id": "demo00000002",
+    "date": "2026-11-07",
+    "type": "expense",
+    "amount": 25.0,
+    "category": "饮食",
+    "note": "午饭",
+    "created_at": "2026-11-07 12:10:00"
+  }
+]
