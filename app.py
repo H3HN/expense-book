@@ -13,6 +13,7 @@ from src.config import (
     EXPENSE_CATEGORIES,
     INCOME_CATEGORIES,
     RECORD_TYPES,
+    STORAGE_ENGINE,
     WEB_DIR,
 )
 from src.import_export import from_csv, to_csv
@@ -24,8 +25,8 @@ from src.validator import validate_record
 
 app = FastAPI(
     title="福大智联 · 简易记账本 API",
-    description="2026 秋软件工程现场编程 · 前后端分离版本",
-    version="2.0.0",
+    description="2026 秋软件工程现场编程 · FastAPI + SQLite3 + 原生 ES Modules",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -58,13 +59,28 @@ def _all_totals():
     return totals(storage.load_records())
 
 
+def _storage_meta():
+    persisted = storage.storage_info()
+    return {
+        "engine": STORAGE_ENGINE,
+        "db_file": persisted["db_file"],
+        "data_file": persisted["data_file"],
+    }
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "expense-book", "version": app.version}
+    return {
+        "status": "ok",
+        "service": "expense-book",
+        "version": app.version,
+        "engine": STORAGE_ENGINE,
+    }
 
 
 @app.get("/api/config")
 def get_config():
+    meta = _storage_meta()
     return {
         "expense_categories": EXPENSE_CATEGORIES,
         "income_categories": INCOME_CATEGORIES,
@@ -72,6 +88,9 @@ def get_config():
         "currency": CURRENCY,
         "today": date.today().strftime(DATE_FORMAT),
         "date_format": DATE_FORMAT,
+        "engine": meta["engine"],
+        "db_file": meta["db_file"],
+        "storage": meta,
     }
 
 
@@ -98,6 +117,7 @@ def list_records(
         "records": records,
         "count": len(records),
         "totals": _all_totals(),
+        "storage": _storage_meta(),
     }
 
 
@@ -218,16 +238,13 @@ async def import_csv(file: UploadFile = File(...)):
     if not incoming:
         raise HTTPException(status_code=400, detail={"errors": ["没有通过校验的有效记录"]})
 
-    existing = storage.load_records()
-    merged = {item["id"]: item for item in existing}
-    for item in incoming:
-        merged[item["id"]] = item
-    storage.save_records(list(merged.values()))
-
+    storage.upsert_records(incoming)
+    merged = storage.load_records()
     return {
         "imported": len(incoming),
         "total": len(merged),
-        "totals": totals(list(merged.values())),
+        "totals": totals(merged),
+        "engine": STORAGE_ENGINE,
     }
 
 

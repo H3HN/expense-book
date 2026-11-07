@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -51,6 +52,7 @@ def test_negative_amount_is_stored_as_given():
     storage.add_record(new_record("2026-11-07", "expense", -5, "其他"))
     assert storage.load_records()[0]["amount"] == -5.0
 
+
 def test_update_record_changes_fields():
     saved = storage.add_record(new_record("2026-11-07", "expense", 10, "交通", "公交"))
     updated = storage.update_record(saved["id"], {"amount": 12.5, "note": "地铁", "category": "交通"})
@@ -82,3 +84,105 @@ def test_get_record():
     saved = storage.add_record(new_record("2026-11-07", "income", 300, "兼职"))
     assert storage.get_record(saved["id"])["category"] == "兼职"
     assert storage.get_record("nope") is None
+
+
+def test_sqlite_database_created(temp_data_file):
+    storage.load_records()
+    db_file = temp_data_file.parent / "records.db"
+    assert db_file.exists()
+    with sqlite3.connect(db_file) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "records" in tables
+
+
+def test_sqlite_indexes_created(temp_data_file):
+    storage.load_records()
+    db_file = temp_data_file.parent / "records.db"
+    with sqlite3.connect(db_file) as conn:
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list('records')")}
+    assert "idx_records_date" in indexes
+    assert "idx_records_type" in indexes
+
+
+def test_json_seed_is_migrated_on_first_load(temp_data_file):
+    seed = [
+        {
+            "id": "seed-1",
+            "date": "2026-11-07",
+            "type": "expense",
+            "amount": 25,
+            "category": "饮食",
+            "note": "种子数据",
+            "created_at": "2026-11-07 09:00:00",
+        }
+    ]
+    temp_data_file.write_text(json.dumps(seed, ensure_ascii=False), encoding="utf-8")
+    records = storage.load_records()
+    assert len(records) == 1
+    assert records[0]["note"] == "种子数据"
+
+
+def test_json_seed_migrated_only_once(temp_data_file):
+    seed = [{"id": "seed-1", "date": "2026-11-07", "type": "expense", "amount": 25, "category": "饮食", "note": "种子数据"}]
+    temp_data_file.write_text(json.dumps(seed, ensure_ascii=False), encoding="utf-8")
+    storage.load_records()
+    storage.delete_record("seed-1")
+    assert storage.load_records() == []
+
+
+def test_json_backup_synced_after_add(temp_data_file):
+    storage.add_record(new_record("2026-11-07", "expense", 18.5, "饮食", "晚饭"))
+    snapshot = json.loads(temp_data_file.read_text(encoding="utf-8"))
+    assert len(snapshot) == 1
+    assert snapshot[0]["note"] == "晚饭"
+
+
+def test_json_backup_synced_after_update(temp_data_file):
+    saved = storage.add_record(new_record("2026-11-07", "expense", 10, "交通", "公交"))
+    storage.update_record(saved["id"], {"amount": 30, "note": "打车"})
+    snapshot = json.loads(temp_data_file.read_text(encoding="utf-8"))
+    assert snapshot[0]["amount"] == 30
+    assert snapshot[0]["note"] == "打车"
+
+
+def test_json_backup_synced_after_delete(temp_data_file):
+    first = storage.add_record(new_record("2026-11-07", "expense", 10, "交通"))
+    storage.add_record(new_record("2026-11-07", "expense", 20, "饮食"))
+    storage.delete_record(first["id"])
+    snapshot = json.loads(temp_data_file.read_text(encoding="utf-8"))
+    assert len(snapshot) == 1
+    assert snapshot[0]["category"] == "饮食"
+
+
+def test_upsert_records_merges_by_primary_key():
+    first = new_record("2026-11-07", "expense", 10, "交通", "公交").to_dict()
+    second = {**first, "amount": 15, "note": "地铁"}
+    assert storage.upsert_records([first, second]) == 2
+    records = storage.load_records()
+    assert len(records) == 1
+    assert records[0]["amount"] == 15
+
+
+def test_upsert_records_empty_list():
+    assert storage.upsert_records([]) == 0
+
+
+def test_storage_info_reports_engine():
+    info = storage.storage_info()
+    assert info["engine"] == "SQLite3 + JSON Backup"
+    assert info["db_file"].endswith("records.db")
+    assert info["data_file"].endswith("records.json")
+
+
+def test_records_isolated_between_test_directories(tmp_path, monkeypatch):
+    first_file = tmp_path / "a" / "records.json"
+    monkeypatch.setattr(storage, "DATA_FILE", first_file)
+    monkeypatch.setattr(storage, "DATA_DIR", first_file.parent)
+    storage.add_record(new_record("2026-11-07", "expense", 12, "饮食", "A"))
+
+    second_file = tmp_path / "b" / "records.json"
+    monkeypatch.setattr(storage, "DATA_FILE", second_file)
+    monkeypatch.setattr(storage, "DATA_DIR", second_file.parent)
+
+    assert storage.load_records() == []
+    assert (second_file.parent / "records.db").exists()
