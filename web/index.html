@@ -215,6 +215,60 @@
 
     .tip-card b { color: var(--ink); font-weight: 600; }
 
+    .storage-card {
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 15px 17px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .storage-head { display: flex; align-items: center; gap: 7px; }
+
+    .storage-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 3px rgba(47, 111, 94, 0.13);
+      animation: pulseDot 2.4s ease-in-out infinite;
+    }
+
+    .storage-title {
+      font-size: 10.5px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .storage-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--green-dark);
+      margin-top: 7px;
+      letter-spacing: 0.3px;
+    }
+
+    .storage-path {
+      font-family: "Consolas", "SFMono-Regular", monospace;
+      font-size: 11.5px;
+      color: #6E675C;
+      margin-top: 2px;
+      word-break: break-all;
+    }
+
+    .storage-note {
+      font-size: 10.5px;
+      color: #A29B8E;
+      margin-top: 6px;
+      line-height: 1.6;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+
     .main { display: grid; gap: 18px; min-width: 0; }
 
     .metrics {
@@ -471,6 +525,8 @@
     .filter-bar .field-input { padding: 8px 10px; font-size: 13px; background: #FFFFFF; }
 
     .records-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+    .head-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
     .summary-pill {
       display: inline-flex;
@@ -942,6 +998,16 @@
           · 图表页支持图例开关与收支切换<br>
           · 数据页支持拖拽 CSV 合并导入
         </section>
+
+        <section class="storage-card">
+          <div class="storage-head">
+            <span class="storage-dot" aria-hidden="true"></span>
+            <span class="storage-title">STORAGE ENGINE</span>
+          </div>
+          <p class="storage-value" id="storage-engine">SQLite3 + JSON Backup</p>
+          <p class="storage-path" id="storage-db">data/records.db</p>
+          <p class="storage-note">写操作先提交 SQLite 事务，再自动同步 records.json 快照</p>
+        </section>
       </aside>
 
       <section class="main">
@@ -1284,6 +1350,19 @@
     initStats();
     bindTabs();
     bindQuickNote();
+
+    api.getConfig()
+      .then((config) => {
+        const engineNode = document.getElementById("storage-engine");
+        const dbNode = document.getElementById("storage-db");
+        if (engineNode) {
+          engineNode.textContent = config.engine || "SQLite3 + JSON Backup";
+        }
+        if (dbNode) {
+          dbNode.textContent = config.db_file || "data/records.db";
+        }
+      })
+      .catch(() => {});
 
     on("app:changed", () => {
       if (state.activeTab === "stats") {
