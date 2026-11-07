@@ -1,19 +1,68 @@
+"""全局配置：路径、类别、格式与存储常量。
+
+约定：
+1. 本模块只放「常量」，不放函数和副作用逻辑，任何模块都可以放心 import；
+2. 同一份规则只在这里写一次，storage.py / validator.py / app.py 一律引用，
+   避免「默认类别」这类规则散落在多个文件里各写一遍；
+3. 路径统一用 pathlib.Path，Windows / Linux 都能用。
+"""
+
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-DATA_FILE = DATA_DIR / "records.json"
-DB_FILE = DATA_DIR / "records.db"
-WEB_DIR = BASE_DIR / "web"
+# ---------------------------------------------------------------------------
+# 一、路径配置
+# ---------------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent.parent   # 项目根目录（src 的上一级）
+DATA_DIR = BASE_DIR / "data"                        # 数据目录
+DATA_FILE = DATA_DIR / "records.json"               # JSON 数据文件（可读、可备份、可迁移）
+DB_FILE = DATA_DIR / "records.db"                   # SQLite 数据库文件（运行时使用，可由 JSON 重建）
+WEB_DIR = BASE_DIR / "web"                          # 前端静态资源目录
 
+# ---------------------------------------------------------------------------
+# 二、文件编码
+# ---------------------------------------------------------------------------
+FILE_ENCODING = "utf-8"    # 读写 JSON / CSV 的统一编码，保证中文不乱码
+ENCODING = FILE_ENCODING   # 兼容别名，按 ENCODING 取值的旧代码也能用
+JSON_INDENT = 2            # JSON 落盘缩进，便于人工查看与 git diff
+
+# ---------------------------------------------------------------------------
+# 三、日期时间格式
+# ---------------------------------------------------------------------------
+DATE_FORMAT = "%Y-%m-%d"                 # 记账日期，例如 2026-11-07
+DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"    # 创建时间，例如 2026-11-07 09:00:00
+
+# ---------------------------------------------------------------------------
+# 四、收支类型
+# ---------------------------------------------------------------------------
+TYPE_EXPENSE = "expense"   # 支出
+TYPE_INCOME = "income"     # 收入
+DEFAULT_RECORD_TYPE = TYPE_EXPENSE
+# 类型 -> 中文标签，供前端下拉框与 CSV 导出使用
+RECORD_TYPES = {
+    TYPE_EXPENSE: "支出",
+    TYPE_INCOME: "收入",
+}
+
+# ---------------------------------------------------------------------------
+# 五、默认收支类别
+# ---------------------------------------------------------------------------
 EXPENSE_CATEGORIES = ["饮食", "交通", "购物", "居住", "学习", "娱乐", "医疗", "其他"]
 INCOME_CATEGORIES = ["工资", "生活费", "兼职", "奖学金", "理财", "其他"]
+DEFAULT_CATEGORY = "其他"   # 类别缺失时的兜底值
+# 按类型取类别列表，validator.py 校验时可以直接查表
+CATEGORIES_BY_TYPE = {
+    TYPE_EXPENSE: EXPENSE_CATEGORIES,
+    TYPE_INCOME: INCOME_CATEGORIES,
+}
 
-RECORD_TYPES = {"expense": "支出", "income": "收入"}
+# ---------------------------------------------------------------------------
+# 六、字段约束
+# ---------------------------------------------------------------------------
+MAX_NOTE_LENGTH = 100      # 备注最大字符数，validator.py 校验时使用
+AMOUNT_DECIMAL_PLACES = 2  # 金额保留小数位，落盘与展示统一两位
 
-DATE_FORMAT = "%Y-%m-%d"
-CURRENCY = "¥"
-
-MAX_NOTE_LENGTH = 100
-
-STORAGE_ENGINE = "SQLite3 + JSON Backup"
+# ---------------------------------------------------------------------------
+# 七、展示与存储
+# ---------------------------------------------------------------------------
+CURRENCY = "¥"                            # 展示用货币符号
+STORAGE_ENGINE = "SQLite3 + JSON Backup"  # 存储方案说明，可通过 /api/config 对外公布
