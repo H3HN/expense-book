@@ -6,13 +6,13 @@ from src.add_expense import render_add_expense
 from src.add_income import render_add_income
 from src.charts import render_charts
 from src.config import CURRENCY
-from src.import_export import from_csv, to_csv
+from src.data_page import render_data_page
 from src.models import new_record
 from src.nl_parser import parse_text
 from src.records_view import render_records
 from src.stats import daily_totals, summary, totals
 from src.stats_by_category import by_category
-from src.storage import add_record, load_records, save_records
+from src.storage import add_record, load_records
 from src.validator import validate_record
 
 st.set_page_config(page_title="简易记账本 · 福大智联", page_icon="🧾", layout="wide")
@@ -110,20 +110,4 @@ with tab_charts:
     render_charts(records, daily_totals(records), by_category(records, "expense"))
 
 with tab_data:
-    st.subheader("导入 / 导出")
-    st.download_button(
-        "导出全部记录（CSV）",
-        data=to_csv(records),
-        file_name="records.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
-    uploaded = st.file_uploader("导入 CSV（与导出格式一致）", type=["csv"])
-    if uploaded is not None and st.button("确认导入"):
-        incoming = from_csv(uploaded.getvalue())
-        merged = {item["id"]: item for item in records}
-        for item in incoming:
-            merged[item["id"]] = item
-        save_records(list(merged.values()))
-        st.success(f"已导入 {len(incoming)} 条记录")
-        st.rerun()
+    render_data_page(records)
