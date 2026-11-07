@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>简易记账本 · 福大智联</title>
+  <meta name="description" content="福州大学软件工程现场编程 · 前后端分离记账本">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%232F6F5E'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='%23FAF8F5' font-family='serif'>账</text></svg>">
+
+  <script src="https://cdn.tailwindcss.com" defer></script>
+  <script src="./js/vendor/echarts.min.js"
+          onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js';document.head.appendChild(s);"></script>
+
+  <style>
+    :root {
+      --paper: #FAF8F5;
+      --paper-2: #F3EFE7;
+      --card: #FFFFFF;
+      --ink: #24231F;
+      --muted: #7A7468;
+      --line: #E7E1D6;
+      --green: #2F6F5E;
+      --green-dark: #255949;
+      --green-soft: #EAF2EE;
+      --coral: #C05746;
+      --coral-dark: #A34536;
+      --coral-soft: #FBEDEA;
+      --gold: #A98A5B;
+      --shadow-sm: 0 1px 2px rgba(36, 35, 31, 0.04), 0 8px 20px rgba(47, 111, 94, 0.05);
+      --shadow-md: 0 2px 6px rgba(36, 35, 31, 0.05), 0 18px 40px rgba(47, 111, 94, 0.09);
+      --radius: 14px;
+      --font-body: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Segoe UI", sans-serif;
+      --font-display: "Songti SC", "Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      min-height: 100vh;
+      background-image:
+        radial-gradient(circle at 12% 8%, rgba(47, 111, 94, 0.05), transparent 42%),
+        radial-gradient(circle at 88% 0%, rgba(192, 87, 70, 0.045), transparent 38%);
+      background-attachment: fixed;
+    }
+
+    button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+    button { cursor: pointer; }
+    h1, h2, h3, h4, p { margin: 0; }
+    table { border-collapse: collapse; width: 100%; }
+    .hidden { display: none !important; }
+
+    .app { max-width: 1320px; margin: 0 auto; padding: 24px 28px 56px; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 6px 2px 22px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 14px; }
+
+    .brand-mark {
+      width: 46px; height: 46px;
+      display: grid; place-items: center;
+      border-radius: 13px;
+      background: linear-gradient(150deg, #3A7F6C, #255949);
+      color: #F7F3EA;
+      font-family: var(--font-display);
+      font-size: 22px;
+      letter-spacing: 1px;
+      box-shadow: 0 10px 22px rgba(47, 111, 94, 0.22);
+    }
+
+    .brand h1 {
+      font-family: var(--font-display);
+      font-size: 23px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+    }
+
+    .brand p {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+
+    .date-chip, .tech-chip {
+      padding: 7px 13px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+
+    .tech-chip {
+      background: var(--green-soft);
+      border-color: #D7E6DF;
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    .sidebar { position: sticky; top: 20px; display: grid; gap: 16px; }
+
+    .quick-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px 20px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .quick-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--green), #7FA99B 62%, var(--gold));
+    }
+
+    .quick-kicker {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: var(--gold);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .quick-card h2 {
+      font-family: var(--font-display);
+      font-size: 19px;
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+
+    .quick-desc {
+      font-size: 12.5px;
+      color: var(--muted);
+      margin: 8px 0 14px;
+      line-height: 1.7;
+    }
+
+    .nl-textarea {
+      width: 100%;
+      min-height: 78px;
+      resize: vertical;
+      padding: 12px 13px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #FCFBF8;
+      outline: none;
+      transition: border-color .2s ease, box-shadow .2s ease;
+      line-height: 1.6;
+    }
+
+    .nl-textarea:focus {
+      border-color: #9FC0B3;
+      box-shadow: 0 0 0 3px rgba(47, 111, 94, 0.10);
+      background: #FFFFFF;
+    }
+
+    .quick-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .quick-actions .btn { flex: 1; padding: 10px 8px; font-size: 13px; }
+
+    .nl-preview {
+      margin-top: 12px;
+      padding: 12px 13px;
+      border-radius: 10px;
+      background: var(--green-soft);
+      border: 1px dashed #BFD8CD;
+      font-size: 12.5px;
+      line-height: 1.9;
+      animation: fadeUp .24s ease;
+    }
+
+    .nl-preview strong { color: var(--green-dark); }
+
+    .tip-card {
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.9;
+    }
+
+    .tip-card b { color: var(--ink); font-weight: 600; }
+
+    .main { display: grid; gap: 18px; min-width: 0; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .metric {
+      position: relative;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px 18px 15px;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      transition: transform .22s ease, box-shadow .22s ease;
+    }
+
+    .metric:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+    .metric::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 14px; bottom: 14px;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+      background: var(--accent, var(--green));
+    }
+
+    .metric-label {
+      display: block;
+      font-size: 11.5px;
+      color: var(--muted);
+      letter-spacing: 1.5px;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      display: block;
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      transition: color .3s ease;
+      white-space: nowrap;
+    }
+
+    .metric-value.metric-flash { animation: metricFlash .52s ease; }
+
+    .metric.income { --accent: var(--green); }
+    .metric.expense { --accent: var(--coral); }
+    .metric.balance { --accent: var(--gold); }
+    .metric.count { --accent: #6B7A8F; }
+
+    .metric.income .metric-value { color: var(--green); }
+    .metric.expense .metric-value { color: var(--coral); }
+    .metric.balance .metric-value { color: var(--gold); }
+
+    .metric-sub {
+      display: block;
+      font-size: 11px;
+      color: #A29B8E;
+      margin-top: 4px;
+    }
+
+    .tabs {
+      display: inline-flex;
+      padding: 4px;
+      gap: 4px;
+      background: var(--paper-2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      width: fit-content;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+
+    .tab {
+      border: none;
+      background: transparent;
+      padding: 9px 20px;
+      border-radius: 9px;
+      font-size: 13.5px;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+      transition: background .2s ease, color .2s ease, box-shadow .2s ease;
+      white-space: nowrap;
+    }
+
+    .tab:hover { color: var(--ink); }
+
+    .tab.is-active {
+      background: var(--card);
+      color: var(--green-dark);
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(36, 35, 31, 0.07);
+    }
+
+    .panel { display: none; animation: fadeUp .28s ease; }
+    .panel.is-active { display: block; }
+
+    .forms-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+
+    .form-card, .records-card, .charts-card, .data-card, .stats-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px 22px 24px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .form-card-expense { border-top: 3px solid var(--coral); }
+    .form-card-income { border-top: 3px solid var(--green); }
+
+    .form-head, .records-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .form-kicker {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: var(--gold);
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+
+    .form-title {
+      font-family: var(--font-display);
+      font-size: 19px;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+
+    .form-badge {
+      padding: 3px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+
+    .form-badge-expense { background: var(--coral-soft); color: var(--coral); }
+    .form-badge-income { background: var(--green-soft); color: var(--green); }
+
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .field { display: grid; gap: 5px; }
+    .field-wide { grid-column: 1 / -1; }
+
+    .field-label, .field > span {
+      font-size: 11.5px;
+      color: var(--muted);
+      letter-spacing: 1px;
+    }
+
+    .field-input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 9px;
+      border: 1px solid var(--line);
+      background: #FCFBF8;
+      outline: none;
+      transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+
+    .field-input:focus {
+      border-color: #9FC0B3;
+      background: #FFFFFF;
+      box-shadow: 0 0 0 3px rgba(47, 111, 94, 0.10);
+    }
+
+    .form-hint { font-size: 11.5px; color: #A29B8E; margin: 10px 0 14px; }
+    .form-hint.is-error { color: var(--coral); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 11px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      transition: transform .16s ease, background .2s ease, box-shadow .2s ease, color .2s ease;
+      position: relative;
+    }
+
+    .btn:active { transform: translateY(1px); }
+    .btn:disabled { opacity: .62; cursor: not-allowed; }
+    .btn-sm { padding: 7px 14px; font-size: 12.5px; }
+    .btn-block { width: 100%; }
+
+    .btn-primary {
+      background: linear-gradient(160deg, #367C69, var(--green-dark));
+      color: #F7F4EC;
+      box-shadow: 0 10px 20px rgba(47, 111, 94, 0.20);
+    }
+
+    .btn-primary:hover { box-shadow: 0 12px 26px rgba(47, 111, 94, 0.28); }
+
+    .btn-expense {
+      background: linear-gradient(160deg, #C96352, var(--coral-dark));
+      color: #FFF6F3;
+      width: 100%;
+      box-shadow: 0 10px 20px rgba(192, 87, 70, 0.18);
+    }
+
+    .btn-income {
+      background: linear-gradient(160deg, #367C69, var(--green-dark));
+      color: #F7F4EC;
+      width: 100%;
+      box-shadow: 0 10px 20px rgba(47, 111, 94, 0.18);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: var(--line);
+      color: var(--muted);
+    }
+
+    .btn-ghost:hover { border-color: #C9C1B3; color: var(--ink); background: #FCFBF8; }
+
+    .btn-loader {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.45);
+      border-top-color: #FFFFFF;
+      display: none;
+      animation: spin .7s linear infinite;
+    }
+
+    .btn.is-loading .btn-loader { display: inline-block; }
+    .btn.is-loading .btn-text { opacity: .72; }
+
+    .filter-bar {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px;
+      background: #FCFBF8;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      margin-bottom: 14px;
+    }
+
+    .filter-field { display: grid; gap: 4px; min-width: 0; }
+    .filter-field-wide { grid-column: span 2; }
+    .filter-bar .field-input { padding: 8px 10px; font-size: 13px; background: #FFFFFF; }
+
+    .records-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+    .summary-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 11px;
+      border-radius: 999px;
+      background: var(--paper-2);
+      border: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .summary-pill strong { color: var(--ink); font-weight: 600; }
+    .summary-pill.summary-income { background: var(--green-soft); border-color: #D7E6DF; color: var(--green); }
+    .summary-pill.summary-expense { background: var(--coral-soft); border-color: #F0D3CD; color: var(--coral); }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+
+    .records-table { min-width: 720px; }
+    .records-table thead th {
+      text-align: left;
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      color: var(--muted);
+      padding: 11px 14px;
+      background: #F8F5EF;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+
+    .records-table tbody td {
+      padding: 11px 14px;
+      border-bottom: 1px solid #F1ECE3;
+      font-size: 13.5px;
+      white-space: nowrap;
+    }
+
+    .records-table tbody tr:last-child td { border-bottom: none; }
+    .records-table tbody tr { transition: background .16s ease; }
+    .records-table tbody tr:hover { background: #FBFAF6; }
+
+    .align-right { text-align: right; }
+    .cell-date { font-variant-numeric: tabular-nums; color: #4B473F; }
+    .cell-note { color: #6E675C; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    .amount-income { color: var(--green); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .amount-expense { color: var(--coral); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .type-tag {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: .5px;
+    }
+
+    .type-income { background: var(--green-soft); color: var(--green); }
+    .type-expense { background: var(--coral-soft); color: var(--coral); }
+
+    .cell-actions { white-space: nowrap; }
+
+    .row-action {
+      border: 1px solid var(--line);
+      background: #FFFFFF;
+      border-radius: 7px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: 4px;
+      transition: all .16s ease;
+    }
+
+    .row-action:hover { border-color: #C9C1B3; color: var(--ink); }
+
+    .row-action.danger:hover { border-color: #E7BDB4; color: var(--coral); background: var(--coral-soft); }
+
+    .row-action.is-confirming {
+      background: var(--coral);
+      border-color: var(--coral);
+      color: #FFF6F3;
+      animation: pulseWarn .9s ease infinite alternate;
+    }
+
+    .empty-state {
+      padding: 42px 20px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .empty-icon { font-size: 26px; color: #C9C1B3; display: block; margin-bottom: 8px; }
+    .empty-hint { font-size: 12px; color: #A29B8E; }
+
+    .stats-card .range-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .range-bar .field-input { width: auto; padding: 7px 10px; font-size: 12.5px; }
+    .range-arrow { color: #A29B8E; font-size: 12px; }
+
+    .stats-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .stat-card {
+      background: #FCFBF8;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+
+    .stat-card span { display: block; font-size: 11.5px; color: var(--muted); letter-spacing: 1px; }
+    .stat-card strong {
+      display: block;
+      font-family: var(--font-display);
+      font-size: 21px;
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-card.income strong { color: var(--green); }
+    .stat-card.expense strong { color: var(--coral); }
+    .stat-card.balance strong { color: var(--gold); }
+
+    .stats-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+
+    .stats-table-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .stats-table-card h4 {
+      padding: 11px 14px;
+      background: #F8F5EF;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+
+    .rank-table thead th {
+      text-align: left;
+      font-size: 11px;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-bottom: 1px solid #F1ECE3;
+      letter-spacing: .8px;
+      background: #FCFBF8;
+    }
+
+    .rank-table tbody td {
+      padding: 9px 12px;
+      font-size: 13px;
+      border-bottom: 1px solid #F5F1E9;
+    }
+
+    .rank-table tbody tr:last-child td { border-bottom: none; }
+
+    .ratio { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+
+    .ratio-track {
+      flex: 1;
+      height: 6px;
+      border-radius: 999px;
+      background: #EEE9DF;
+      overflow: hidden;
+    }
+
+    .ratio-fill { height: 100%; border-radius: 999px; transition: width .5s ease; }
+    .ratio-fill.expense { background: linear-gradient(90deg, #D37A6A, var(--coral)); }
+    .ratio-fill.income { background: linear-gradient(90deg, #6FA191, var(--green)); }
+
+    .ratio span { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    .empty-inline { padding: 26px; text-align: center; color: #A29B8E; font-size: 12.5px; }
+
+    .charts-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+
+    .chart-box {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #FCFBF8;
+    }
+
+    .chart-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #4B473F;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+
+    .chart-canvas { width: 100%; height: 320px; }
+
+    .chart-fallback {
+      height: 100%;
+      display: grid;
+      place-content: center;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12.5px;
+      gap: 6px;
+    }
+
+    .chart-fallback span { font-size: 24px; color: #C9C1B3; }
+
+    .ring-switch {
+      display: inline-flex;
+      padding: 3px;
+      gap: 3px;
+      border-radius: 9px;
+      background: var(--paper-2);
+      border: 1px solid var(--line);
+    }
+
+    .ring-switch button {
+      border: none;
+      background: transparent;
+      padding: 6px 13px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      color: var(--muted);
+      transition: all .18s ease;
+    }
+
+    .ring-switch button.is-active {
+      background: #FFFFFF;
+      color: var(--green-dark);
+      font-weight: 600;
+      box-shadow: 0 2px 6px rgba(36, 35, 31, 0.07);
+    }
+
+    .data-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; }
+
+    .data-panel {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      background: #FCFBF8;
+    }
+
+    .data-desc { font-size: 12.5px; color: var(--muted); line-height: 1.8; margin: 6px 0 14px; }
+
+    .drop-zone {
+      border: 1.5px dashed #CFC7B8;
+      border-radius: 12px;
+      padding: 24px 16px;
+      text-align: center;
+      background: #FFFFFF;
+      transition: all .2s ease;
+      cursor: pointer;
+    }
+
+    .drop-zone:hover { border-color: #9FC0B3; background: #FBFDFC; }
+
+    .drop-zone.is-dragover {
+      border-color: var(--green);
+      background: var(--green-soft);
+      transform: scale(1.01);
+    }
+
+    .drop-zone.is-busy { opacity: .6; pointer-events: none; }
+
+    .drop-icon { font-size: 24px; color: var(--green); display: block; margin-bottom: 6px; }
+    .drop-title { font-size: 13.5px; font-weight: 600; }
+    .drop-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+    .data-status {
+      margin-top: 10px;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    .data-status.is-success { color: var(--green); }
+    .data-status.is-error { color: var(--coral); }
+
+    .toast-container {
+      position: fixed;
+      top: 22px;
+      right: 24px;
+      display: grid;
+      gap: 10px;
+      z-index: 120;
+      pointer-events: none;
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 240px;
+      max-width: 340px;
+      padding: 12px 15px;
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.97);
+      border: 1px solid var(--line);
+      box-shadow: 0 12px 30px rgba(36, 35, 31, 0.12);
+      font-size: 13px;
+      color: var(--ink);
+      opacity: 0;
+      transform: translateX(24px) scale(.97);
+      transition: opacity .28s ease, transform .28s ease;
+    }
+
+    .toast.is-visible { opacity: 1; transform: translateX(0) scale(1); }
+    .toast.is-leaving { opacity: 0; transform: translateX(16px) scale(.97); }
+
+    .toast-icon {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 12px;
+      color: #FFFFFF;
+      background: var(--green);
+      flex: 0 0 auto;
+    }
+
+    .toast-error .toast-icon { background: var(--coral); }
+    .toast-info .toast-icon { background: #6B7A8F; }
+    .toast-error { border-color: #F0D3CD; }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 110;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(36, 35, 31, 0.32);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity .22s ease, visibility .22s ease;
+    }
+
+    .modal.is-open { opacity: 1; visibility: visible; }
+
+    .modal-card {
+      width: min(520px, 100%);
+      background: var(--card);
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      box-shadow: 0 30px 70px rgba(36, 35, 31, 0.22);
+      padding: 22px 22px 20px;
+      transform: translateY(10px) scale(.98);
+      transition: transform .24s ease;
+    }
+
+    .modal.is-open .modal-card { transform: translateY(0) scale(1); }
+
+    .modal-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .modal-head h3 {
+      font-family: var(--font-display);
+      font-size: 19px;
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+
+    .modal-close {
+      border: none;
+      background: transparent;
+      font-size: 22px;
+      line-height: 1;
+      color: #A29B8E;
+      padding: 2px 6px;
+      border-radius: 6px;
+      transition: all .16s ease;
+    }
+
+    .modal-close:hover { background: var(--paper-2); color: var(--ink); }
+
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes metricFlash {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.045); }
+      100% { transform: scale(1); }
+    }
+
+    @keyframes pulseWarn {
+      from { box-shadow: 0 0 0 0 rgba(192, 87, 70, 0.28); }
+      to { box-shadow: 0 0 0 5px rgba(192, 87, 70, 0); }
+    }
+
+    @media (max-width: 1080px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; grid-template-columns: 1fr 1fr; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .charts-grid, .data-grid, .stats-tables { grid-template-columns: 1fr; }
+      .filter-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .filter-field-wide { grid-column: span 3; }
+    }
+
+    @media (max-width: 720px) {
+      .app { padding: 16px 14px 40px; }
+      .topbar { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .sidebar { grid-template-columns: 1fr; }
+      .forms-grid, .form-grid { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .stats-metrics { grid-template-columns: 1fr 1fr; }
+      .filter-bar { grid-template-columns: 1fr 1fr; }
+      .filter-field-wide { grid-column: span 2; }
+      .metric-value { font-size: 20px; }
+      .tabs { width: 100%; }
+      .tab { flex: 1; padding: 9px 10px; }
+      .chart-canvas { height: 280px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">账</span>
+        <div>
+          <h1>简易记账本</h1>
+          <p>福大智联 · 第七组</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="date-chip" id="today-chip"></span>
+        <span class="tech-chip">FastAPI · ECharts</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <section class="quick-card">
+          <p class="quick-kicker">QUICK NOTE</p>
+          <h2>一句话记账</h2>
+          <p class="quick-desc">
+            写「午饭 25」或「兼职收入 300 元」，自动识别类型、类别与金额。
+          </p>
+          <textarea id="nl-text" class="nl-textarea" placeholder="例如：2月15日午饭 25&#10;例如：买2杯奶茶 36元"></textarea>
+          <div class="quick-actions">
+            <button type="button" class="btn btn-ghost" id="nl-preview">解析预览</button>
+            <button type="button" class="btn btn-primary" id="nl-save">解析并保存</button>
+          </div>
+          <div id="nl-preview-box" class="nl-preview hidden"></div>
+        </section>
+
+        <section class="tip-card">
+          <b>演示提示</b><br>
+          · 明细页点击「编辑」可修改记录<br>
+          · 删除需再点一次「确认删除？」<br>
+          · 图表页支持图例开关与收支切换<br>
+          · 数据页支持拖拽 CSV 合并导入
+        </section>
+      </aside>
+
+      <section class="main">
+        <div class="metrics">
+          <article class="metric income">
+            <span class="metric-label">总收入</span>
+            <span class="metric-value" id="metric-income">¥0.00</span>
+            <span class="metric-sub">INCOME</span>
+          </article>
+          <article class="metric expense">
+            <span class="metric-label">总支出</span>
+            <span class="metric-value" id="metric-expense">¥0.00</span>
+            <span class="metric-sub">EXPENSE</span>
+          </article>
+          <article class="metric balance">
+            <span class="metric-label">结余</span>
+            <span class="metric-value" id="metric-balance">¥0.00</span>
+            <span class="metric-sub">BALANCE</span>
+          </article>
+          <article class="metric count">
+            <span class="metric-label">总笔数</span>
+            <span class="metric-value" id="metric-count">0 笔</span>
+            <span class="metric-sub">RECORDS</span>
+          </article>
+        </div>
+
+        <nav class="tabs" aria-label="功能导航">
+          <button type="button" class="tab is-active" data-tab="ledger">记账</button>
+          <button type="button" class="tab" data-tab="records">明细</button>
+          <button type="button" class="tab" data-tab="stats">统计</button>
+          <button type="button" class="tab" data-tab="charts">图表</button>
+          <button type="button" class="tab" data-tab="data">数据</button>
+        </nav>
+
+        <div class="panels">
+          <section class="panel is-active" id="panel-ledger">
+            <div class="forms-grid">
+              <div id="expense-form"></div>
+              <div id="income-form"></div>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-records">
+            <div id="records-view"></div>
+          </section>
+
+          <section class="panel" id="panel-stats">
+            <div id="stats-view"></div>
+          </section>
+
+          <section class="panel" id="panel-charts">
+            <div id="charts-view"></div>
+          </section>
+
+          <section class="panel" id="panel-data">
+            <div id="data-view"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <div id="edit-modal" class="modal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+      <header class="modal-head">
+        <div>
+          <p class="form-kicker">EDIT</p>
+          <h3 id="edit-title">编辑记录</h3>
+        </div>
+        <button type="button" class="modal-close" data-action="cancel" aria-label="关闭">×</button>
+      </header>
+      <form id="edit-form" novalidate>
+        <input type="hidden" name="id">
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">日期</span>
+            <input class="field-input" type="date" name="date" required>
+          </label>
+          <label class="field">
+            <span class="field-label">类型</span>
+            <select class="field-input" name="type">
+              <option value="expense">支出</option>
+              <option value="income">收入</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">金额</span>
+            <input class="field-input" type="number" name="amount" min="0.01" step="0.01" required>
+          </label>
+          <label class="field">
+            <span class="field-label">类别</span>
+            <select class="field-input" name="category"></select>
+          </label>
+          <label class="field field-wide">
+            <span class="field-label">备注</span>
+            <input class="field-input" type="text" name="note" maxlength="100">
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-action="cancel">取消</button>
+          <button type="submit" class="btn btn-primary">保存修改</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { api, escapeHtml, formatMoney, formatPercent, on, refreshApp, state, toast, todayString } from "./js/api.js";
+    import { mount as mountExpense } from "./js/add_expense.js";
+    import { mount as mountIncome } from "./js/add_income.js";
+    import { mount as mountRecords } from "./js/records_view.js";
+    import { mount as mountCharts } from "./js/charts.js";
+    import { mount as mountData } from "./js/data_page.js";
+
+    const todayChip = document.getElementById("today-chip");
+    const statsHost = document.getElementById("stats-view");
+    let chartsApi = null;
+
+    function shiftDate(days) {
+      const date = new Date();
+      date.setDate(date.getDate() + days);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    todayChip.textContent = todayString();
+
+    mountExpense(document.getElementById("expense-form"));
+    mountIncome(document.getElementById("income-form"));
+    mountRecords(document.getElementById("records-view"));
+    chartsApi = mountCharts(document.getElementById("charts-view"));
+    mountData(document.getElementById("data-view"));
+
+    function bindTabs() {
+      const buttons = Array.from(document.querySelectorAll("[data-tab]"));
+      const panels = {
+        ledger: document.getElementById("panel-ledger"),
+        records: document.getElementById("panel-records"),
+        stats: document.getElementById("panel-stats"),
+        charts: document.getElementById("panel-charts"),
+        data: document.getElementById("panel-data"),
+      };
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const tab = button.dataset.tab;
+          state.activeTab = tab;
+          buttons.forEach((item) => item.classList.toggle("is-active", item === button));
+          Object.entries(panels).forEach(([name, panel]) => {
+            panel.classList.toggle("is-active", name === tab);
+          });
+
+          if (tab === "charts" && chartsApi) {
+            chartsApi.activate();
+          }
+          if (tab === "stats") {
+            loadStats();
+          }
+        });
+      });
+    }
+
+    function renderRank(container, rows, tone) {
+      if (!rows.length) {
+        container.innerHTML = '<div class="empty-inline">该区间暂无数据</div>';
+        return;
+      }
+      container.innerHTML = `
+        <table class="rank-table">
+          <thead>
+            <tr>
+              <th>类别</th>
+              <th class="align-right">金额</th>
+              <th class="align-right">笔数</th>
+              <th>占比</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map(
+                (row) => `
+              <tr>
+                <td>${escapeHtml(row.category)}</td>
+                <td class="align-right">${formatMoney(row.amount)}</td>
+                <td class="align-right">${row.count}</td>
+                <td>
+                  <div class="ratio">
+                    <div class="ratio-track">
+                      <div class="ratio-fill ${tone}" style="width:${(Number(row.ratio) * 100).toFixed(2)}%"></div>
+                    </div>
+                    <span>${formatPercent(row.ratio)}</span>
+                  </div>
+                </td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function initStats() {
+      statsHost.innerHTML = `
+        <section class="stats-card">
+          <header class="records-head">
+            <div>
+              <p class="form-kicker">STATISTICS</p>
+              <h3 class="form-title">区间统计</h3>
+            </div>
+            <div class="range-bar">
+              <input class="field-input" type="date" id="stats-start">
+              <span class="range-arrow">→</span>
+              <input class="field-input" type="date" id="stats-end">
+              <button class="btn btn-ghost btn-sm" type="button" id="stats-reset">最近 30 天</button>
+            </div>
+          </header>
+
+          <div class="stats-metrics">
+            <div class="stat-card income"><span>区间收入</span><strong id="stats-income">¥0.00</strong></div>
+            <div class="stat-card expense"><span>区间支出</span><strong id="stats-expense">¥0.00</strong></div>
+            <div class="stat-card balance"><span>区间结余</span><strong id="stats-balance">¥0.00</strong></div>
+            <div class="stat-card count"><span>区间笔数</span><strong id="stats-count">0 笔</strong></div>
+          </div>
+
+          <div class="stats-tables">
+            <div class="stats-table-card">
+              <h4>支出类别排行</h4>
+              <div id="stats-expense-rows"></div>
+            </div>
+            <div class="stats-table-card">
+              <h4>收入类别排行</h4>
+              <div id="stats-income-rows"></div>
+            </div>
+          </div>
+        </section>
+      `;
+
+      const startInput = document.getElementById("stats-start");
+      const endInput = document.getElementById("stats-end");
+      startInput.value = shiftDate(-29);
+      endInput.value = todayString();
+
+      startInput.addEventListener("change", loadStats);
+      endInput.addEventListener("change", loadStats);
+      document.getElementById("stats-reset").addEventListener("click", () => {
+        startInput.value = shiftDate(-29);
+        endInput.value = todayString();
+        loadStats();
+      });
+    }
+
+    async function loadStats() {
+      const start = document.getElementById("stats-start").value;
+      const end = document.getElementById("stats-end").value;
+
+      if (start && end && start > end) {
+        toast("起始日期不能晚于结束日期", "error");
+        return;
+      }
+
+      try {
+        const data = await api.getStats({ start, end });
+        document.getElementById("stats-income").textContent = formatMoney(data.summary.income);
+        document.getElementById("stats-expense").textContent = formatMoney(data.summary.expense);
+        document.getElementById("stats-balance").textContent = formatMoney(data.summary.balance);
+        document.getElementById("stats-count").textContent = `${data.summary.count} 笔`;
+        renderRank(document.getElementById("stats-expense-rows"), data.expense_by_category, "expense");
+        renderRank(document.getElementById("stats-income-rows"), data.income_by_category, "income");
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    }
+
+    function bindQuickNote() {
+      const textarea = document.getElementById("nl-text");
+      const previewButton = document.getElementById("nl-preview");
+      const saveButton = document.getElementById("nl-save");
+      const previewBox = document.getElementById("nl-preview-box");
+
+      function showPreview(parsed) {
+        previewBox.classList.remove("hidden");
+        previewBox.innerHTML = `
+          识别为 <strong>${parsed.type === "income" ? "收入" : "支出"}</strong> ·
+          <strong>${escapeHtml(parsed.category)}</strong> ·
+          <strong>${formatMoney(parsed.amount)}</strong><br>
+          备注：${escapeHtml(parsed.note || "—")}　日期：${escapeHtml(parsed.date || todayString())}
+        `;
+      }
+
+      function setLoading(button, loading) {
+        button.disabled = loading;
+        button.classList.toggle("is-loading", loading);
+      }
+
+      previewButton.addEventListener("click", async () => {
+        const text = textarea.value.trim();
+        if (!text) {
+          toast("先写一句话，例如：午饭 25", "error");
+          textarea.focus();
+          return;
+        }
+        setLoading(previewButton, true);
+        try {
+          const result = await api.nlParse(text, false);
+          showPreview(result.parsed);
+        } catch (error) {
+          previewBox.classList.add("hidden");
+          toast(error.message, "error");
+        } finally {
+          setLoading(previewButton, false);
+        }
+      });
+
+      saveButton.addEventListener("click", async () => {
+        const text = textarea.value.trim();
+        if (!text) {
+          toast("先写一句话，例如：午饭 25", "error");
+          textarea.focus();
+          return;
+        }
+        setLoading(saveButton, true);
+        try {
+          const result = await api.nlParse(text, true);
+          showPreview(result.parsed);
+          toast(`已保存：${result.saved.category} ${formatMoney(result.saved.amount)}`);
+          textarea.value = "";
+          await refreshApp();
+        } catch (error) {
+          toast(error.message, "error");
+        } finally {
+          setLoading(saveButton, false);
+        }
+      });
+    }
+
+    initStats();
+    bindTabs();
+    bindQuickNote();
+
+    on("app:changed", () => {
+      if (state.activeTab === "stats") {
+        loadStats();
+      }
+    });
+
+    refreshApp().catch(() => {});
+    loadStats();
+  </script>
+</body>
+</html>

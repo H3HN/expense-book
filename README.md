@@ -55,7 +55,11 @@ data/records.json          本地数据文件
 pytest -q
 ```
 
-覆盖存储 CRUD 与 `update_record`、统计与区间筛选、自然语言多数字误判、CSV 脏数据过滤，以及全部 FastAPI 接口（TestClient）。
+覆盖存储 CRUD 与 `update_record`、统计与区间筛选、自然语言多数字误判、CSV 脏数据过滤，以及全部 FastAPI 接口（TestClient）。当前 43 项全绿。
+
+前端 ECharts 已本地化到 `web/js/vendor/echarts.min.js`，断网演示可正常出图；Tailwind 由 CDN 加速，样式本身为内置 CSS，CDN 失败不影响布局。
+
+启动、13 人分支与提交步骤见 [docs/本地启动与提交清单.md](docs/本地启动与提交清单.md)。
 
 ## 目录
 
