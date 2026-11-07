@@ -32,7 +32,9 @@ export function emit(event, detail) {
   });
 }
 
-async function request(path, { method = "GET", body, headers } = {}) {
+const REQUEST_TIMEOUT = 10000;
+
+async function request(path, { method = "GET", body, headers, timeout = REQUEST_TIMEOUT } = {}) {
   const isFormData = body instanceof FormData;
   const options = { method };
   if (isFormData) {
@@ -44,14 +46,21 @@ async function request(path, { method = "GET", body, headers } = {}) {
     options.headers = headers;
   }
 
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeout);
+  options.signal = controller.signal;
+
   let response;
   try {
     response = await fetch(`${API_BASE}${path}`, options);
   } catch (networkError) {
-    const error = new Error("无法连接后端，请确认 uvicorn 已启动");
+    const isTimeout = networkError && networkError.name === "AbortError";
+    const error = new Error(isTimeout ? "请求超时，请检查后端是否正常运行" : "无法连接后端，请确认 uvicorn 已启动");
     error.status = 0;
     error.errors = [error.message];
     throw error;
+  } finally {
+    window.clearTimeout(timer);
   }
 
   const contentType = response.headers.get("content-type") || "";
@@ -128,6 +137,24 @@ export const api = {
 
   exportCsvUrl() {
     return `${API_BASE}/api/export/csv`;
+  },
+
+  async exportCsv(timeout = REQUEST_TIMEOUT) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeout);
+    let response;
+    try {
+      response = await fetch(`${API_BASE}/api/export/csv`, { signal: controller.signal });
+    } catch (networkError) {
+      const isTimeout = networkError && networkError.name === "AbortError";
+      throw new Error(isTimeout ? "导出超时，请检查后端是否正常运行" : "无法连接后端，请确认 uvicorn 已启动");
+    } finally {
+      window.clearTimeout(timer);
+    }
+    if (!response.ok) {
+      throw new Error(`导出失败 (${response.status})`);
+    }
+    return response.blob();
   },
 
   importCsv(file) {
@@ -209,15 +236,27 @@ export function toast(message, type = "success") {
   item.className = `toast toast-${type}`;
   const icon = type === "error" ? "!" : type === "info" ? "i" : "✓";
   item.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-text">${escapeHtml(message)}</span>`;
+  item.style.pointerEvents = "auto";
+  item.style.cursor = "pointer";
+  item.title = "点击关闭";
+
+  let removed = false;
+  const dismiss = () => {
+    if (removed) {
+      return;
+    }
+    removed = true;
+    item.classList.remove("is-visible");
+    item.classList.add("is-leaving");
+    window.setTimeout(() => item.remove(), 320);
+  };
+  item.addEventListener("click", dismiss);
+
   container.appendChild(item);
 
   requestAnimationFrame(() => item.classList.add("is-visible"));
 
-  window.setTimeout(() => {
-    item.classList.remove("is-visible");
-    item.classList.add("is-leaving");
-    window.setTimeout(() => item.remove(), 320);
-  }, 2800);
+  window.setTimeout(dismiss, 2800);
 }
 
 export default api;
