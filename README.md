@@ -21,7 +21,7 @@ uvicorn app:app --reload --port 8000
 
 ```
 浏览器
-  web/index.html            3页外壳（陈韦融）
+  web/index.html            单页外壳（陈韦融）
   web/js/api.js             统一 fetch 封装 + 全局状态派发（王泽炜）
   web/js/*.js               5 个业务 ES Module 组件
         │  JSON / REST
