@@ -72,6 +72,8 @@ def summary(records, start=None, end=None):
 
 def filter_by_range(records, start=None, end=None, rtype=None, category=None, keyword=None):
     keyword = (keyword or "").strip().lower()
+    rtype = (rtype or "").strip()
+    category = (category or "").strip()
     result = []
     for record in records:
         if not in_range(record, start, end):
@@ -80,8 +82,11 @@ def filter_by_range(records, start=None, end=None, rtype=None, category=None, ke
             continue
         if category and category != "all" and record.get("category") != category:
             continue
-        if keyword and keyword not in str(record.get("note", "")).lower():
-            continue
+        if keyword:
+            note_text = str(record.get("note", "")).lower()
+            category_text = str(record.get("category", "")).lower()
+            if keyword not in note_text and keyword not in category_text:
+                continue
         result.append(record)
     return result
 
@@ -89,11 +94,16 @@ def filter_by_range(records, start=None, end=None, rtype=None, category=None, ke
 def daily_totals(records):
     buckets = defaultdict(lambda: {"income": 0.0, "expense": 0.0})
     for record in records:
+        if not isinstance(record, dict):
+            continue
         record_type = record.get("type")
         if record_type not in ("expense", "income"):
             continue
-        day = record.get("date", "")
-        buckets[day][record_type] += float(record.get("amount", 0))
+        day_obj = _as_date(record.get("date", ""))
+        if day_obj is None:
+            continue
+        day = day_obj.strftime(DATE_FORMAT)
+        buckets[day][record_type] += _safe_amount(record.get("amount", 0))
     rows = []
     for day in sorted(buckets):
         income = round(buckets[day]["income"], 2)
@@ -105,3 +115,20 @@ def daily_totals(records):
             "balance": round(income - expense, 2),
         })
     return rows
+
+
+def range_overview(records, start=None, end=None):
+    selected = [r for r in records if in_range(r, start, end)]
+    base = totals(selected)
+    daily = daily_totals(selected)
+    active_days = len(daily)
+    max_expense = max(
+        (_safe_amount(r.get("amount", 0)) for r in selected if r.get("type") == "expense"),
+        default=0.0,
+    )
+    return {
+        **base,
+        "active_days": active_days,
+        "avg_daily_expense": round(base["expense"] / active_days, 2) if active_days else 0.0,
+        "max_expense": round(max_expense, 2),
+    }
