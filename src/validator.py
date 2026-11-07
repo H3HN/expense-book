@@ -25,7 +25,6 @@ _AMOUNT_NOISE = ("¥", "￥", "$", ",", "，", "元", "圆", "块")
 
 def _to_amount(value):
     """把用户输入转成 float；无法转换或非有限数值时抛出 ValueError。
-
     支持的写法：25、25.5、"25"、" ￥1,200 "、"36元"；
     明确拒绝：None、bool、空串、NaN、Infinity。
     """
