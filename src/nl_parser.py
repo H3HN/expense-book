@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from src.config import EXPENSE_CATEGORIES, INCOME_CATEGORIES
 
@@ -17,7 +18,10 @@ KEYWORDS = {
     "理财": ["利息", "基金", "理财", "分红", "收益"],
 }
 
-INCOME_HINTS = ("收入", "收到", "进账", "工资", "薪水", "兼职", "家教", "实习", "稿费", "奖学金", "助学金", "生活费", "利息", "分红", "收益")
+INCOME_HINTS = (
+    "收入", "收到", "进账", "工资", "薪水", "兼职", "家教", "实习", "稿费",
+    "奖学金", "助学金", "生活费", "利息", "分红", "收益",
+)
 
 DATE_PATTERNS = [
     re.compile(r"\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}\s*[日号]?"),
@@ -26,11 +30,22 @@ DATE_PATTERNS = [
     re.compile(r"(?:今天|昨天|前天|上周|本周|这周|上午|下午|晚上|中午|早上|凌晨)"),
 ]
 
-QUANTIFIER_SUFFIX = "杯|个|份|斤|公斤|瓶|次|天|月|日|年|号|点|路|楼|人|张|本|件|袋|盒|包|支|只|台|辆|双|套|碗|顿|节|小时|分钟"
+QUANTIFIER_SUFFIX = (
+    "杯|个|份|斤|公斤|瓶|次|天|月|日|年|号|点|路|楼|人|张|本|件|袋|盒|包|支|只|台|辆|双|套|碗|顿|节|小时|分钟"
+)
+QUANTIFIED_PATTERN = re.compile(
+    r"(?<!\d)(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:" + QUANTIFIER_SUFFIX + r")"
+)
 
-UNIT_PATTERN = re.compile(r"(\d+(?:\.\d{1,2})?)\s*(?:元|块钱|块|rmb|RMB|￥|¥|人民币)")
-QUANTIFIED_PATTERN = re.compile(r"(\d+(?:\.\d{1,2})?)\s*(?:" + QUANTIFIER_SUFFIX + r")")
-NUMBER_PATTERN = re.compile(r"(\d+(?:\.\d{1,2})?)")
+_NUMBER = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+_AMOUNT_PATTERN = re.compile(
+    r"(?<![\d.])(?P<sign>[+-]?)\s*(?:(?:人民币|RMB|CNY|¥|￥)\s*)?"
+    r"(?P<number>" + _NUMBER + r")\s*(?:(?:元|块钱|块|人民币|RMB|CNY))?(?![\d.])",
+    re.IGNORECASE,
+)
+_CURRENCY_PREFIX_PATTERN = re.compile(r"(?:人民币|RMB|CNY|¥|￥)", re.IGNORECASE)
+_CURRENCY_SUFFIX_PATTERN = re.compile(r"(?:人民币|RMB|CNY|元|块钱|块)", re.IGNORECASE)
+_MONEY_QUANTUM = Decimal("0.01")
 
 
 def guess_category(text):
@@ -44,56 +59,78 @@ def guess_category(text):
     return best
 
 
-def _clean_text(text):
-    cleaned = text
-    for pattern in DATE_PATTERNS:
-        cleaned = pattern.sub(" ", cleaned)
-    return cleaned
+def _mask_patterns(text, patterns):
+    masked = text
+    for pattern in patterns:
+        masked = pattern.sub(lambda match: " " * len(match.group()), masked)
+    return masked
 
 
 def _extract_amount(text):
-    unit_matches = UNIT_PATTERN.findall(text)
-    if unit_matches:
-        return float(unit_matches[-1]), True
+    """Return the final plausible amount and its span in the original text."""
+    candidates = []
+    for match in _AMOUNT_PATTERN.finditer(text):
+        raw_number = match.group("number")
+        after = text[match.end():]
+        has_currency = bool(
+            _CURRENCY_PREFIX_PATTERN.search(match.group())
+            or _CURRENCY_SUFFIX_PATTERN.search(match.group())
+        )
 
-    cleaned = QUANTIFIED_PATTERN.sub(" ", text)
-    cleaned = UNIT_PATTERN.sub(" ", cleaned)
-    numbers = NUMBER_PATTERN.findall(cleaned)
-    if not numbers:
-        return None, False
-    return float(numbers[-1]), False
+        # Plain quantities such as "2杯" are not monetary amounts.
+        if not has_currency and re.match(r"\s*(?:" + QUANTIFIER_SUFFIX + r")", after):
+            continue
+        # A leading minus denotes an invalid negative amount, rather than a positive one.
+        sign = match.group("sign")
+        if sign == "-":
+            continue
+        try:
+            amount = Decimal(raw_number.replace(",", ""))
+            amount = amount.quantize(_MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            continue
+        if amount <= 0:
+            continue
+        candidates.append((amount, match.span()))
+
+    return candidates[-1] if candidates else (None, None)
 
 
-def _build_note(text, amount, had_unit):
-    note = text
-    for pattern in DATE_PATTERNS:
-        note = pattern.sub(" ", note)
-    if had_unit:
-        note = UNIT_PATTERN.sub(" ", note)
-    else:
-        note = QUANTIFIED_PATTERN.sub(" ", note)
-        note = re.sub(r"(?<!\d)" + re.escape(f"{amount:g}") + r"(?!\d)", " ", note)
+def _build_note(text, amount_span):
+    note = _mask_patterns(text, DATE_PATTERNS)
+    note = _mask_patterns(note, [QUANTIFIED_PATTERN])
+    if amount_span:
+        start, end = amount_span
+        note = note[:start] + (" " * (end - start)) + note[end:]
     note = re.sub(r"[，,。.！!？?、；;：:]", " ", note)
     note = re.sub(r"\s+", " ", note).strip()
     return note[:100] or "快速记账"
 
 
 def parse_text(text):
-    source = (text or "").strip()
+    if not isinstance(text, str):
+        return None
+    source = text.strip()
     if not source:
         return None
 
-    normalized = _clean_text(source)
-    amount, had_unit = _extract_amount(normalized)
-    if amount is None or amount <= 0:
+    # Mask dates and quantities without changing offsets, so amount extraction and
+    # note cleanup use the same positions in the original phrase.
+    normalized = _mask_patterns(source, DATE_PATTERNS)
+    normalized = _mask_patterns(normalized, [QUANTIFIED_PATTERN])
+    amount, amount_span = _extract_amount(normalized)
+    if amount is None:
         return None
 
     record_type = "income" if any(hint in normalized for hint in INCOME_HINTS) else "expense"
     category = guess_category(normalized)
     allowed = INCOME_CATEGORIES if record_type == "income" else EXPENSE_CATEGORIES
-    if category not in allowed:
-        fallback = guess_category(normalized)
-        category = fallback if fallback in allowed else "其他"
+    category = category if category in allowed else "其他"
 
-    note = _build_note(source, amount, had_unit)
-    return {"type": record_type, "amount": round(amount, 2), "category": category, "note": note}
+    note = _build_note(source, amount_span)
+    return {
+        "type": record_type,
+        "amount": float(amount),
+        "category": category,
+        "note": note,
+    }
