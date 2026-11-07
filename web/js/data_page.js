@@ -54,6 +54,8 @@ function updateTotal(totals) {
   node.textContent = `当前 ${Number(totals.count || 0)} 条 · ${formatMoney(totals.balance)}`;
 }
 
+const MAX_IMPORT_SIZE = 5 * 1024 * 1024;
+
 async function importFile(file) {
   if (!file) {
     return;
@@ -61,6 +63,11 @@ async function importFile(file) {
   if (!file.name.toLowerCase().endsWith(".csv")) {
     toast("只支持 .csv 文件", "error");
     setStatus("文件格式不支持，请选择 .csv", "error");
+    return;
+  }
+  if (file.size > MAX_IMPORT_SIZE) {
+    toast("文件过大，最大支持 5MB", "error");
+    setStatus(`文件 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 5MB 上限，请拆分后导入`, "error");
     return;
   }
 
@@ -92,14 +99,27 @@ export function mount(container) {
   const input = host.querySelector("[data-file]");
   const drop = host.querySelector("[data-drop]");
 
-  host.querySelector('[data-action="export"]').addEventListener("click", () => {
-    const link = document.createElement("a");
-    link.href = api.exportCsvUrl();
-    link.download = "records.csv";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    toast("已开始下载 records.csv", "info");
+  const exportButton = host.querySelector('[data-action="export"]');
+  exportButton.addEventListener("click", async () => {
+    exportButton.disabled = true;
+    exportButton.classList.add("is-loading");
+    try {
+      const blob = await api.exportCsv();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "records.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast("已开始下载 records.csv", "info");
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      exportButton.disabled = false;
+      exportButton.classList.remove("is-loading");
+    }
   });
 
   drop.addEventListener("click", () => input.click());
