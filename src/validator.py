@@ -1,10 +1,33 @@
+import math
 from datetime import datetime
 
-from src.config import DATE_FORMAT, EXPENSE_CATEGORIES, INCOME_CATEGORIES, RECORD_TYPES
+from src.config import (
+    DATE_FORMAT,
+    EXPENSE_CATEGORIES,
+    INCOME_CATEGORIES,
+    MAX_NOTE_LENGTH,
+    RECORD_TYPES,
+)
+
+
+def _to_amount(value):
+    if value is None or isinstance(value, bool):
+        raise ValueError("金额必须是数字")
+    if isinstance(value, str):
+        value = value.strip().replace("¥", "").replace("￥", "").replace(",", "")
+        if not value:
+            raise ValueError("金额必须是数字")
+    amount = float(value)
+    if math.isnan(amount) or math.isinf(amount):
+        raise ValueError("金额必须是有效数字")
+    return amount
 
 
 def validate_record(data):
     errors = []
+
+    if not isinstance(data, dict):
+        return ["记录必须是对象"]
 
     date_text = str(data.get("date", "")).strip()
     try:
@@ -13,9 +36,11 @@ def validate_record(data):
         errors.append("日期格式应为 YYYY-MM-DD")
 
     try:
-        amount = float(data.get("amount", 0))
+        amount = _to_amount(data.get("amount"))
         if amount <= 0:
             errors.append("金额必须大于 0")
+        elif round(amount, 2) <= 0:
+            errors.append("金额必须大于 0.01")
     except (TypeError, ValueError):
         errors.append("金额必须是数字")
 
@@ -27,8 +52,8 @@ def validate_record(data):
         if data.get("category") not in allowed:
             errors.append("类别不在允许范围内")
 
-    note = str(data.get("note", ""))
-    if len(note) > 100:
-        errors.append("备注不能超过 100 字")
+    note = str(data.get("note", "") or "")
+    if len(note) > MAX_NOTE_LENGTH:
+        errors.append(f"备注不能超过 {MAX_NOTE_LENGTH} 字")
 
     return errors
