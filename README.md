@@ -1,0 +1,35 @@
+# 福大智联 · 简易记账本
+
+2026 秋《软件工程与软件工程实践》现场编程作业。
+
+一个基于 **Python + Streamlit** 的个人记账应用，支持收入/支出记录、本地 JSON 持久化、按日期与类别统计、图表展示、CSV 导入导出。
+
+## 运行
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+# http://localhost:8501
+```
+
+## 目录
+
+| 目录 | 说明 |
+| --- | --- |
+| `app.py` | Streamlit 入口与页面装配 |
+| `src/` | 业务模块（每人一个文件，见 `docs/分工.md`） |
+| `tests/` | 单元测试与验收用例 |
+| `data/` | 本地数据文件 `records.json` |
+| `docs/` | 分工、接口约定、博客素材 |
+
+## 团队
+
+福大智联 · 第七组 · 13 人 6 组。
+详细分工见 [docs/分工.md](docs/分工.md)。
+
+## 协作约定
+
+1. 只改自己负责的文件，公共文件（`app.py`、`src/models.py`）改动前在群里说明。
+2. 每个模块一个分支：`feat/<姓名拼音>-<模块>`，合并前 `git pull --rebase main`。
+3. commit 使用 `feat(模块): 说明` 格式，保证每人有可追溯的提交记录。
+4. 17:00 前打 tag `v1.0` 并发布 Release。
