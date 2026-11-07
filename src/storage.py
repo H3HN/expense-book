@@ -4,7 +4,7 @@ import threading
 from contextlib import closing
 from pathlib import Path
 
-from src.config import DATA_DIR, DATA_FILE, DB_FILE
+from src.config import DATA_DIR, DATA_FILE, DB_FILE, DATE_FORMAT
 from src.models import Record
 
 _LOCK = threading.RLock()
@@ -224,6 +224,54 @@ def get_record(record_id):
             _init_schema(conn)
             _bootstrap(conn, data_file)
             return _fetch_one(conn, record_id)
+
+
+def _date_param(value):
+    if value is None or value == "":
+        return None
+    if hasattr(value, "strftime"):
+        return value.strftime(DATE_FORMAT)
+    return str(value)
+
+
+def query_records(start=None, end=None, rtype=None, category=None, keyword=None, limit=None):
+    clauses = []
+    params = []
+
+    start_value = _date_param(start)
+    end_value = _date_param(end)
+    if start_value:
+        clauses.append("date >= ?")
+        params.append(start_value)
+    if end_value:
+        clauses.append("date <= ?")
+        params.append(end_value)
+    if rtype and rtype != "all":
+        clauses.append("type = ?")
+        params.append(rtype)
+    if category and category != "all":
+        clauses.append("category = ?")
+        params.append(category)
+    keyword = (keyword or "").strip()
+    if keyword:
+        clauses.append("note LIKE ?")
+        params.append(f"%{keyword}%")
+
+    sql = f"SELECT {_FIELDS} FROM records"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY date DESC, created_at DESC"
+    if limit:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+
+    with _LOCK:
+        data_file, db_file = _ensure()
+        with closing(_connect(db_file)) as conn:
+            _init_schema(conn)
+            _bootstrap(conn, data_file)
+            rows = conn.execute(sql, params).fetchall()
+            return [Record.from_dict(dict(row)).to_dict() for row in rows]
 
 
 def storage_info():

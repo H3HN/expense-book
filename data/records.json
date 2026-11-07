@@ -1,15 +1,132 @@
 [
   {
-    "id": "demo00000001",
-    "date": "2026-11-07",
+    "id": "seed00000001",
+    "date": "2026-10-29",
     "type": "income",
     "amount": 2000.0,
     "category": "生活费",
     "note": "本月生活费",
-    "created_at": "2026-11-07 09:00:00"
+    "created_at": "2026-10-29 09:00:00"
   },
   {
-    "id": "demo00000002",
+    "id": "seed00000002",
+    "date": "2026-10-29",
+    "type": "expense",
+    "amount": 18.0,
+    "category": "饮食",
+    "note": "午饭",
+    "created_at": "2026-10-29 12:10:00"
+  },
+  {
+    "id": "seed00000003",
+    "date": "2026-10-30",
+    "type": "expense",
+    "amount": 6.0,
+    "category": "交通",
+    "note": "地铁",
+    "created_at": "2026-10-30 08:20:00"
+  },
+  {
+    "id": "seed00000004",
+    "date": "2026-10-30",
+    "type": "expense",
+    "amount": 45.0,
+    "category": "娱乐",
+    "note": "电影",
+    "created_at": "2026-10-30 19:30:00"
+  },
+  {
+    "id": "seed00000005",
+    "date": "2026-10-31",
+    "type": "expense",
+    "amount": 128.5,
+    "category": "购物",
+    "note": "冬装",
+    "created_at": "2026-10-31 15:00:00"
+  },
+  {
+    "id": "seed00000006",
+    "date": "2026-10-31",
+    "type": "income",
+    "amount": 300.0,
+    "category": "兼职",
+    "note": "家教",
+    "created_at": "2026-10-31 21:00:00"
+  },
+  {
+    "id": "seed00000007",
+    "date": "2026-11-01",
+    "type": "expense",
+    "amount": 800.0,
+    "category": "居住",
+    "note": "房租",
+    "created_at": "2026-11-01 10:00:00"
+  },
+  {
+    "id": "seed00000008",
+    "date": "2026-11-02",
+    "type": "expense",
+    "amount": 76.8,
+    "category": "学习",
+    "note": "教材",
+    "created_at": "2026-11-02 14:00:00"
+  },
+  {
+    "id": "seed00000009",
+    "date": "2026-11-02",
+    "type": "income",
+    "amount": 1500.0,
+    "category": "奖学金",
+    "note": "校级奖学金",
+    "created_at": "2026-11-02 16:30:00"
+  },
+  {
+    "id": "seed00000010",
+    "date": "2026-11-03",
+    "type": "expense",
+    "amount": 32.0,
+    "category": "交通",
+    "note": "打车",
+    "created_at": "2026-11-03 22:10:00"
+  },
+  {
+    "id": "seed00000011",
+    "date": "2026-11-03",
+    "type": "expense",
+    "amount": 58.0,
+    "category": "医疗",
+    "note": "感冒药",
+    "created_at": "2026-11-03 20:00:00"
+  },
+  {
+    "id": "seed00000012",
+    "date": "2026-11-04",
+    "type": "expense",
+    "amount": 96.0,
+    "category": "饮食",
+    "note": "寝室聚餐",
+    "created_at": "2026-11-04 18:30:00"
+  },
+  {
+    "id": "seed00000013",
+    "date": "2026-11-05",
+    "type": "income",
+    "amount": 260.0,
+    "category": "兼职",
+    "note": "稿费",
+    "created_at": "2026-11-05 11:00:00"
+  },
+  {
+    "id": "seed00000014",
+    "date": "2026-11-06",
+    "type": "expense",
+    "amount": 63.2,
+    "category": "购物",
+    "note": "日用品",
+    "created_at": "2026-11-06 17:20:00"
+  },
+  {
+    "id": "seed00000015",
     "date": "2026-11-07",
     "type": "expense",
     "amount": 25.0,

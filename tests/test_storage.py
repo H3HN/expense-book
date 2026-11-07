@@ -186,3 +186,95 @@ def test_records_isolated_between_test_directories(tmp_path, monkeypatch):
 
     assert storage.load_records() == []
     assert (second_file.parent / "records.db").exists()
+
+def seed_query_rows():
+    rows = [
+        ("2026-10-29", "income", 2000, "生活费", "本月生活费"),
+        ("2026-10-29", "expense", 18, "饮食", "午饭"),
+        ("2026-10-30", "expense", 6, "交通", "地铁"),
+        ("2026-10-30", "expense", 45, "娱乐", "电影"),
+        ("2026-10-31", "expense", 128.5, "购物", "冬装"),
+    ]
+    for day, rtype, amount, category, note in rows:
+        storage.add_record(new_record(day, rtype, amount, category, note))
+
+
+def test_query_records_returns_all_sorted_by_date_desc():
+    seed_query_rows()
+    records = storage.query_records()
+    assert len(records) == 5
+    dates = [record["date"] for record in records]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_query_records_by_type():
+    seed_query_rows()
+    records = storage.query_records(rtype="income")
+    assert len(records) == 1
+    assert records[0]["category"] == "生活费"
+
+
+def test_query_records_by_category():
+    seed_query_rows()
+    records = storage.query_records(category="交通")
+    assert len(records) == 1
+    assert records[0]["amount"] == 6
+
+
+def test_query_records_by_date_range():
+    seed_query_rows()
+    records = storage.query_records(start="2026-10-30", end="2026-10-30")
+    assert len(records) == 2
+    assert {record["date"] for record in records} == {"2026-10-30"}
+
+
+def test_query_records_accepts_date_objects():
+    seed_query_rows()
+    from datetime import date
+
+    records = storage.query_records(start=date(2026, 10, 31), end=date(2026, 10, 31))
+    assert len(records) == 1
+    assert records[0]["category"] == "购物"
+
+
+def test_query_records_by_keyword():
+    seed_query_rows()
+    records = storage.query_records(keyword="地铁")
+    assert len(records) == 1
+    assert records[0]["note"] == "地铁"
+
+
+def test_query_records_keyword_is_parameterized():
+    seed_query_rows()
+    assert storage.query_records(keyword="' OR 1=1 --") == []
+
+
+def test_query_records_limit():
+    seed_query_rows()
+    records = storage.query_records(limit=2)
+    assert len(records) == 2
+    assert records[0]["date"] == "2026-10-31"
+
+
+def test_query_records_combined_filters():
+    seed_query_rows()
+    records = storage.query_records(
+        start="2026-10-29",
+        end="2026-10-30",
+        rtype="expense",
+        category="饮食",
+        keyword="午饭",
+        limit=10,
+    )
+    assert len(records) == 1
+    assert records[0]["amount"] == 18
+
+
+def test_query_records_no_match():
+    seed_query_rows()
+    assert storage.query_records(keyword="不存在的备注") == []
+
+
+def test_query_records_ignores_all_placeholder():
+    seed_query_rows()
+    assert len(storage.query_records(rtype="all", category="all")) == 5

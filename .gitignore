@@ -1,11 +1,13 @@
 __pycache__/
 *.py[cod]
+*.pyc
+.pytest_cache/
 .venv/
 venv/
-.pytest_cache/
+*.tmp
+*.log
 .streamlit/secrets.toml
 *.xlsx
-*.log
 .DS_Store
 Thumbs.db
 
