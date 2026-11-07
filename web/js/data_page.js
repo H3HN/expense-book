@@ -12,7 +12,10 @@ function renderShell() {
           <p class="form-kicker">DATA</p>
           <h3 class="form-title">数据管理</h3>
         </div>
-        <span class="summary-pill" data-total>—</span>
+        <div class="head-meta">
+          <span class="summary-pill" data-engine>SQLite3</span>
+          <span class="summary-pill" data-total>—</span>
+        </div>
       </header>
 
       <div class="data-grid">
@@ -68,7 +71,7 @@ async function importFile(file) {
   try {
     const result = await api.importCsv(file);
     lastResult = result;
-    setStatus(`已导入 ${result.imported} 条，合并后共 ${result.total} 条`, "success");
+    setStatus(`已导入 ${result.imported} 条，合并后共 ${result.total} 条，已写入 SQLite 并同步 JSON 快照`, "success");
     toast(`导入成功：新增/更新 ${result.imported} 条`);
     updateTotal(result.totals);
     await refreshApp();
@@ -136,6 +139,17 @@ export function mount(container) {
   on("app:changed", ({ totals }) => {
     updateTotal(totals);
   });
+
+  api
+    .getConfig()
+    .then((config) => {
+      const engineNode = host.querySelector("[data-engine]");
+      if (engineNode) {
+        const dbName = (config.db_file || "data/records.db").split("/").pop();
+        engineNode.textContent = `${config.engine || "SQLite3 + JSON Backup"} · ${dbName}`;
+      }
+    })
+    .catch(() => {});
 
   api
     .getRecords()
