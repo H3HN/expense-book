@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -107,6 +108,13 @@ def test_api_config(client):
     assert body["record_types"]["expense"] == "支出"
 
 
+def test_api_config_reports_sqlite(client):
+    body = client.get("/api/config").json()
+    assert body["engine"] == "SQLite3 + JSON Backup"
+    assert body["db_file"].endswith("records.db")
+    assert body["storage"]["engine"] == body["engine"]
+
+
 def test_api_create_and_totals(client):
     response = client.post("/api/records", json=_payload())
     assert response.status_code == 201
@@ -204,3 +212,32 @@ def test_api_import_rejects_non_csv(client):
         files={"file": ("records.txt", b"date,amount\n", "text/plain")},
     )
     assert response.status_code == 400
+
+def test_api_import_is_idempotent(client):
+    client.post("/api/records", json=_payload())
+    exported = client.get("/api/export/csv").content
+
+    first = client.post("/api/import/csv", files={"file": ("records.csv", exported, "text/csv")})
+    second = client.post("/api/import/csv", files={"file": ("records.csv", exported, "text/csv")})
+
+    assert first.json()["total"] == 1
+    assert second.json()["total"] == 1
+    assert second.json()["imported"] == 1
+    assert client.get("/api/records").json()["totals"]["count"] == 1
+
+
+def test_api_update_syncs_json_backup(client):
+    created = client.post("/api/records", json=_payload()).json()["record"]
+    client.put(f"/api/records/{created['id']}", json={"amount": 33, "note": "改后备份"})
+
+    snapshot = json.loads(Path(storage.DATA_FILE).read_text(encoding="utf-8"))
+    assert len(snapshot) == 1
+    assert snapshot[0]["amount"] == 33
+    assert snapshot[0]["note"] == "改后备份"
+
+
+def test_api_create_writes_sqlite_file(client):
+    client.post("/api/records", json=_payload())
+    db_file = Path(storage.DATA_FILE).with_name("records.db")
+    assert db_file.exists()
+    assert db_file.stat().st_size > 0

@@ -3,6 +3,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DATA_FILE = DATA_DIR / "records.json"
+DB_FILE = DATA_DIR / "records.db"
 WEB_DIR = BASE_DIR / "web"
 
 EXPENSE_CATEGORIES = ["饮食", "交通", "购物", "居住", "学习", "娱乐", "医疗", "其他"]
@@ -14,3 +15,5 @@ DATE_FORMAT = "%Y-%m-%d"
 CURRENCY = "¥"
 
 MAX_NOTE_LENGTH = 100
+
+STORAGE_ENGINE = "SQLite3 + JSON Backup"
