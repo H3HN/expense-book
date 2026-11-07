@@ -1,113 +1,251 @@
-from datetime import date, timedelta
+from datetime import date, datetime
+from typing import Optional
 
-import streamlit as st
+from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
-from src.add_expense import render_add_expense
-from src.add_income import render_add_income
-from src.charts import render_charts
-from src.config import CURRENCY
-from src.data_page import render_data_page
+from src import storage
+from src.config import (
+    CURRENCY,
+    DATE_FORMAT,
+    EXPENSE_CATEGORIES,
+    INCOME_CATEGORIES,
+    RECORD_TYPES,
+    WEB_DIR,
+)
+from src.import_export import from_csv, to_csv
 from src.models import new_record
 from src.nl_parser import parse_text
-from src.records_view import render_records
-from src.stats import daily_totals, summary, totals
+from src.stats import daily_totals, filter_by_range, summary, totals
 from src.stats_by_category import by_category
-from src.storage import add_record, load_records
 from src.validator import validate_record
 
-st.set_page_config(page_title="简易记账本 · 福大智联", page_icon="🧾", layout="wide")
-
-st.markdown(
-    """
-    <style>
-    .block-container {padding-top: 2.2rem; max-width: 1180px;}
-    h1, h2, h3 {letter-spacing: .5px;}
-    div[data-testid="stMetricValue"] {font-size: 1.7rem;}
-    div[data-testid="stMetric"] {
-        background: #FFFFFF; border: 1px solid #E3DDD1; border-left: 4px solid #2F6F5E;
-        border-radius: 12px; padding: 14px 18px;
-    }
-    .stTabs [data-baseweb="tab-list"] {gap: 6px;}
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0; padding: 8px 18px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
+app = FastAPI(
+    title="福大智联 · 简易记账本 API",
+    description="2026 秋软件工程现场编程 · 前后端分离版本",
+    version="2.0.0",
 )
 
-records = load_records()
-total = totals(records)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-st.title("简易记账本")
-st.caption("福大智联 · 2026 秋软件工程现场编程 · Python + Streamlit")
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("总收入", f"{CURRENCY}{total['income']:,.2f}")
-col2.metric("总支出", f"{CURRENCY}{total['expense']:,.2f}")
-col3.metric("结余", f"{CURRENCY}{total['balance']:,.2f}")
-col4.metric("记录笔数", f"{len(records)} 笔")
+def _parse_day(value, field):
+    if value in (None, ""):
+        return None
+    try:
+        return datetime.strptime(str(value), DATE_FORMAT).date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail={"errors": [f"{field} 格式应为 YYYY-MM-DD"]})
 
-with st.sidebar:
-    st.header("快速记一笔")
-    quick = st.text_input("一句话记账", placeholder="午饭 25")
-    if st.button("解析并保存", use_container_width=True):
-        parsed = parse_text(quick)
-        if not parsed:
-            st.error("没识别出金额，试试“午饭 25”")
-        else:
-            payload = {**parsed, "date": date.today().strftime("%Y-%m-%d")}
-            errors = validate_record(payload)
-            if errors:
-                for error in errors:
-                    st.error(error)
-            else:
-                add_record(new_record(payload["date"], payload["type"], payload["amount"], payload["category"], payload["note"]))
-                st.success(f"已记录：{payload['note']} {CURRENCY}{payload['amount']:.2f}")
-                st.rerun()
 
-    st.divider()
-    st.caption("数据结构：JSON 本地文件")
-    st.caption(f"数据文件：data/records.json")
+def _sort_records(records):
+    return sorted(
+        records,
+        key=lambda r: (str(r.get("date", "")), str(r.get("created_at", ""))),
+        reverse=True,
+    )
 
-tab_add, tab_records, tab_stats, tab_charts, tab_data = st.tabs(["记账", "明细", "统计", "图表", "数据"])
 
-with tab_add:
-    left, right = st.columns(2)
-    with left:
-        render_add_expense()
-    with right:
-        render_add_income()
+def _all_totals():
+    return totals(storage.load_records())
 
-with tab_records:
-    render_records()
 
-with tab_stats:
-    st.subheader("收支统计")
-    col1, col2 = st.columns(2)
-    start = col1.date_input("起始日期", value=date.today() - timedelta(days=30), key="stats_start")
-    end = col2.date_input("结束日期", value=date.today(), key="stats_end")
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "service": "expense-book", "version": app.version}
 
-    if start > end:
-        st.warning("起始日期不能晚于结束日期")
-    else:
-        result = summary(records, start, end)
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("区间收入", f"{CURRENCY}{result['income']:,.2f}")
-        c2.metric("区间支出", f"{CURRENCY}{result['expense']:,.2f}")
-        c3.metric("区间结余", f"{CURRENCY}{result['balance']:,.2f}")
-        c4.metric("笔数", result["count"])
 
-        left, right = st.columns(2)
-        with left:
-            st.markdown("**支出类别排行**")
-            st.dataframe(by_category(records, "expense"), use_container_width=True, hide_index=True)
-        with right:
-            st.markdown("**收入类别排行**")
-            st.dataframe(by_category(records, "income"), use_container_width=True, hide_index=True)
+@app.get("/api/config")
+def get_config():
+    return {
+        "expense_categories": EXPENSE_CATEGORIES,
+        "income_categories": INCOME_CATEGORIES,
+        "record_types": RECORD_TYPES,
+        "currency": CURRENCY,
+        "today": date.today().strftime(DATE_FORMAT),
+        "date_format": DATE_FORMAT,
+    }
 
-with tab_charts:
-    render_charts(records, daily_totals(records), by_category(records, "expense"))
 
-with tab_data:
-    render_data_page(records)
+@app.get("/api/records")
+def list_records(
+    type: Optional[str] = Query(None, description="expense / income / all"),
+    category: Optional[str] = Query(None),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    keyword: Optional[str] = Query(None),
+    limit: Optional[int] = Query(None, ge=1, le=1000),
+):
+    start_day = _parse_day(start, "start")
+    end_day = _parse_day(end, "end")
+    if start_day and end_day and start_day > end_day:
+        raise HTTPException(status_code=400, detail={"errors": ["起始日期不能晚于结束日期"]})
+
+    records = _sort_records(
+        filter_by_range(storage.load_records(), start_day, end_day, type, category, keyword)
+    )
+    if limit:
+        records = records[:limit]
+    return {
+        "records": records,
+        "count": len(records),
+        "totals": _all_totals(),
+    }
+
+
+@app.post("/api/records", status_code=201)
+def create_record(payload: dict = Body(...)):
+    errors = validate_record(payload)
+    if errors:
+        raise HTTPException(status_code=400, detail={"errors": errors})
+    record = new_record(
+        payload["date"],
+        payload["type"],
+        payload["amount"],
+        payload["category"],
+        payload.get("note", ""),
+    )
+    saved = storage.add_record(record)
+    return {"record": saved, "totals": _all_totals()}
+
+
+@app.put("/api/records/{record_id}")
+def update_record(record_id: str, payload: dict = Body(...)):
+    current = storage.get_record(record_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail={"errors": ["记录不存在"]})
+
+    merged = dict(current)
+    for key in ("date", "type", "amount", "category", "note"):
+        if key in payload:
+            merged[key] = payload[key]
+
+    errors = validate_record(merged)
+    if errors:
+        raise HTTPException(status_code=400, detail={"errors": errors})
+
+    updated = storage.update_record(record_id, merged)
+    if updated is None:
+        raise HTTPException(status_code=404, detail={"errors": ["记录不存在"]})
+    return {"record": updated, "totals": _all_totals()}
+
+
+@app.delete("/api/records/{record_id}")
+def delete_record(record_id: str):
+    if not storage.delete_record(record_id):
+        raise HTTPException(status_code=404, detail={"errors": ["记录不存在"]})
+    return {"deleted": record_id, "totals": _all_totals()}
+
+
+@app.post("/api/nl-parse")
+def nl_parse(payload: dict = Body(...)):
+    text = str(payload.get("text", ""))
+    auto_save = bool(payload.get("auto_save", False))
+    parsed = parse_text(text)
+    if not parsed:
+        raise HTTPException(
+            status_code=400,
+            detail={"errors": ["没能识别出有效金额，试试「午饭 25」或「兼职 300 元」"]},
+        )
+
+    parsed["date"] = str(payload.get("date") or date.today().strftime(DATE_FORMAT))
+    if not auto_save:
+        return {"parsed": parsed, "saved": None, "totals": _all_totals()}
+
+    errors = validate_record(parsed)
+    if errors:
+        raise HTTPException(status_code=400, detail={"errors": errors})
+
+    record = new_record(
+        parsed["date"], parsed["type"], parsed["amount"], parsed["category"], parsed["note"]
+    )
+    saved = storage.add_record(record)
+    return {"parsed": parsed, "saved": saved, "totals": _all_totals()}
+
+
+@app.get("/api/stats")
+def get_stats(
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+):
+    start_day = _parse_day(start, "start")
+    end_day = _parse_day(end, "end")
+    if start_day and end_day and start_day > end_day:
+        raise HTTPException(status_code=400, detail={"errors": ["起始日期不能晚于结束日期"]})
+
+    records = storage.load_records()
+    scoped = filter_by_range(records, start_day, end_day)
+    return {
+        "summary": summary(scoped),
+        "daily_totals": daily_totals(scoped),
+        "expense_by_category": by_category(scoped, "expense"),
+        "income_by_category": by_category(scoped, "income"),
+        "totals": totals(records),
+        "range": {
+            "start": start_day.strftime(DATE_FORMAT) if start_day else None,
+            "end": end_day.strftime(DATE_FORMAT) if end_day else None,
+            "count": len(scoped),
+        },
+    }
+
+
+@app.get("/api/export/csv")
+def export_csv():
+    data = to_csv(storage.load_records())
+    headers = {"Content-Disposition": 'attachment; filename="records.csv"'}
+    return Response(content=data, media_type="text/csv; charset=utf-8", headers=headers)
+
+
+@app.post("/api/import/csv")
+async def import_csv(file: UploadFile = File(...)):
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail={"errors": ["只支持 .csv 文件"]})
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail={"errors": ["文件为空"]})
+
+    incoming = from_csv(raw)
+    if not incoming:
+        raise HTTPException(status_code=400, detail={"errors": ["没有通过校验的有效记录"]})
+
+    existing = storage.load_records()
+    merged = {item["id"]: item for item in existing}
+    for item in incoming:
+        merged[item["id"]] = item
+    storage.save_records(list(merged.values()))
+
+    return {
+        "imported": len(incoming),
+        "total": len(merged),
+        "totals": totals(list(merged.values())),
+    }
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    index_file = WEB_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    return JSONResponse(
+        {
+            "message": "前端尚未部署，可访问 /docs 查看接口文档",
+            "docs": "/docs",
+            "api_prefix": "/api",
+        }
+    )
+
+
+for _mount_path, _subdir in (("/js", "js"), ("/assets", "assets")):
+    _target = WEB_DIR / _subdir
+    if _target.is_dir():
+        app.mount(_mount_path, StaticFiles(directory=_target), name=_subdir)

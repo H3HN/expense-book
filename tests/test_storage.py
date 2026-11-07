@@ -50,3 +50,35 @@ def test_delete_record():
 def test_negative_amount_is_stored_as_given():
     storage.add_record(new_record("2026-11-07", "expense", -5, "其他"))
     assert storage.load_records()[0]["amount"] == -5.0
+
+def test_update_record_changes_fields():
+    saved = storage.add_record(new_record("2026-11-07", "expense", 10, "交通", "公交"))
+    updated = storage.update_record(saved["id"], {"amount": 12.5, "note": "地铁", "category": "交通"})
+    assert updated["id"] == saved["id"]
+    assert updated["amount"] == 12.5
+    assert updated["note"] == "地铁"
+    assert storage.load_records()[0]["amount"] == 12.5
+
+
+def test_update_record_keeps_id_and_created_at():
+    saved = storage.add_record(new_record("2026-11-07", "expense", 10, "交通"))
+    updated = storage.update_record(saved["id"], {"amount": 88})
+    assert updated["created_at"] == saved["created_at"]
+    assert updated["date"] == "2026-11-07"
+
+
+def test_update_unknown_record_returns_none():
+    storage.add_record(new_record("2026-11-07", "expense", 10, "交通"))
+    assert storage.update_record("missing-id", {"amount": 20}) is None
+
+
+def test_update_ignores_unknown_keys():
+    saved = storage.add_record(new_record("2026-11-07", "expense", 10, "交通"))
+    updated = storage.update_record(saved["id"], {"amount": 11, "hacker": "x"})
+    assert "hacker" not in updated
+
+
+def test_get_record():
+    saved = storage.add_record(new_record("2026-11-07", "income", 300, "兼职"))
+    assert storage.get_record(saved["id"])["category"] == "兼职"
+    assert storage.get_record("nope") is None

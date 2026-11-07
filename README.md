@@ -1,52 +1,82 @@
-# 福大智联 · 简易记账本
+# 福大智联 · 简易记账本（前后端分离版）
 
 2026 秋《软件工程与软件工程实践》现场编程作业。
 
-一个基于 **Python + Streamlit** 的个人记账应用，支持收入/支出记录、本地 JSON 持久化、按日期与类别统计、图表展示、CSV 导入导出。
+FastAPI 提供 RESTful JSON API 并托管静态前端；前端为原生 HTML + Tailwind CSS + ES Modules + Apache ECharts，**无需 npm、无需打包**。
 
-## 运行
+## 一键启动
 
 ```bash
 pip install -r requirements.txt
-streamlit run app.py
-# http://localhost:8501
+uvicorn app:app --reload --port 8000
 ```
+
+- 应用：http://127.0.0.1:8000
+- 接口文档：http://127.0.0.1:8000/docs
+- 健康检查：http://127.0.0.1:8000/api/health
+
+## 架构
+
+```
+浏览器
+  web/index.html          单页外壳
+  web/js/api.js           统一 fetch 封装 + 全局状态派发
+  web/js/*.js             5 个业务 ES Module 组件
+        │  JSON / REST
+        ▼
+FastAPI  app.py            9 组 API + 静态资源托管
+        │
+src/    storage.py         JSON 持久化（线程锁 + 原子写）
+        stats*.py          统计引擎
+        nl_parser.py       自然语言解析
+        import_export.py   CSV 导入导出
+        models/validator   模型与校验
+        ▼
+data/records.json          本地数据文件
+```
+
+## API
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/config` | 收支类别、类型、货币、今日日期 |
+| GET | `/api/records` | 筛选记录（type / category / start / end / keyword / limit）+ 全局 totals |
+| POST | `/api/records` | 新增记录，校验失败返回 400 |
+| PUT | `/api/records/{id}` | 修改记录 |
+| DELETE | `/api/records/{id}` | 删除记录 |
+| POST | `/api/nl-parse` | 一句话记账，支持 `auto_save` |
+| GET | `/api/stats` | 区间 summary / 每日趋势 / 收支类别排行 |
+| GET | `/api/export/csv` | 导出 CSV 文件流 |
+| POST | `/api/import/csv` | 上传 CSV，按 id 去重合并 |
+
+## 测试
+
+```bash
+pytest -q
+```
+
+覆盖存储 CRUD 与 `update_record`、统计与区间筛选、自然语言多数字误判、CSV 脏数据过滤，以及全部 FastAPI 接口（TestClient）。
 
 ## 目录
 
-| 目录 | 说明 |
-| --- | --- |
-| `app.py` | Streamlit 入口与页面装配 |
-| `src/` | 业务模块（每人一个文件，见 `docs/分工.md`） |
-| `tests/` | 单元测试与验收用例 |
-| `data/` | 本地数据文件 `records.json` |
-| `docs/` | 分工、接口约定、博客素材 |
+| 路径 | 负责人 | 内容 |
+| --- | --- | --- |
+| `app.py` | 黄俊翔 | FastAPI 路由装配与静态挂载 |
+| `src/models.py`、`src/config.py` | 黄炜杰 | 数据模型与配置 |
+| `src/nl_parser.py` | 金若曦 | 自然语言记账 |
+| `src/import_export.py` | 越长智 | CSV 导出与安全导入 |
+| `src/storage.py` | 洪豊幀 | JSON 持久化（含 update） |
+| `src/stats.py` | 王世豪 | 收支统计 |
+| `src/stats_by_category.py` | 谭段昊 | 类别排行 |
+| `web/js/add_expense.js` | 邱福铭 | 支出录入 |
+| `web/js/add_income.js` | 王伟浩 | 收入录入 |
+| `web/js/records_view.js` | 陈封 | 明细筛选与编辑 |
+| `web/js/charts.js` | 陈韦融 | ECharts 图表 |
+| `web/js/data_page.js` | 王泽炜 | 导入导出 |
+| `tests/` | 邓杰 | 单元与接口测试 |
+
+`src/` 下旧的 Streamlit 组件文件保留为迁移声明，指向对应的前端模块。
 
 ## 团队
 
-福大智联 · 第七组 · 13 人，一人一个模块。
-
-| 姓名 | 学号 | 模块 |
-| --- | --- | --- |
-| 黄俊翔（组长） | 102402125 | 页面装配与项目统筹 |
-| 黄炜杰 | 102402126 | 数据模型与类别配置 |
-| 金若曦 | 102402127 | 自然语言记账 |
-| 越长智 | 102402143 | CSV 解析与序列化 |
-| 洪豊幀 | 102402124 | JSON 存储层 |
-| 王世豪 | 102402134 | 收支统计引擎 |
-| 谭段昊 | 102402133 | 类别统计 |
-| 邱福铭 | 102402132 | 支出录入页 |
-| 王伟浩 | 102402135 | 收入录入页 |
-| 陈封 | 102402119 | 明细查看与筛选 |
-| 陈韦融 | 102402121 | 图表可视化 |
-| 王泽炜 | 102302113 | 数据管理页 |
-| 邓杰 | 102402122 | 单元测试与验收 |
-
-详细分工、分支规范和评分表见 [docs/分工.md](docs/分工.md)。
-
-## 协作约定
-
-1. 只改自己负责的文件，公共文件（`app.py`、`src/models.py`）改动前在群里说明。
-2. 每个模块一个分支：`feat/<姓名拼音>-<模块>`，合并前 `git pull --rebase main`。
-3. commit 使用 `feat(模块): 说明` 格式，保证每人有可追溯的提交记录。
-4. 17:00 前打 tag `v1.0` 并发布 Release。
+福大智联 · 第七组 · 13 人，一人一个模块。详见 [docs/分工.md](docs/分工.md)。
