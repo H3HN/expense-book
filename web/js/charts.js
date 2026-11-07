@@ -267,8 +267,9 @@ function render() {
 
   host.querySelectorAll("[data-range-quick]").forEach((button) => {
     const quick = button.dataset.rangeQuick;
-    const isAll = quick === "all" && !rangeStart && !rangeEnd;
-    button.classList.toggle("is-active", isAll);
+    const expectedStart = quick === "all" ? "" : shiftDate(-(Number(quick) - 1));
+    const expectedEnd = quick === "all" ? "" : todayString();
+    button.classList.toggle("is-active", rangeStart === expectedStart && rangeEnd === expectedEnd);
   });
 }
 
